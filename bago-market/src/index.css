@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary-900: #0D0B61;
+  --color-primary-800: #112E81;
+  --color-primary-700: #133458;
+  --color-primary-600: #1a4a7a;
+  --color-primary-500: #1e5a9e;
+  --color-primary-400: #3b82d6;
+  --color-primary-300: #7baeec;
+  --color-primary-200: #bdd4f5;
+  --color-primary-100: #dce8fa;
+  --color-primary-50: #eef4fd;
+
+  --color-accent-500: #eab308;
+  --color-accent-400: #FFF449;
+  --color-accent-300: #FFF78D;
+  --color-accent-200: #FEF2A0;
+  --color-accent-100: #fef9c3;
+  --color-accent-50: #fefce8;
+
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* Global styles */
+body {
+  font-family: var(--font-sans);
+  background-color: #f8fafc;
+  color: #1e293b;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Animations */
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes slideOutRight {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(100%); opacity: 0; }
+}
+
+.toast-enter {
+  animation: slideInRight 0.3s ease-out forwards;
+}
+.toast-exit {
+  animation: slideOutRight 0.3s ease-in forwards;
+}
+
+/* Skeleton loader */
+@keyframes shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+  background-size: 200px 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+/* Product card hover */
+.product-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.product-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.1), 0 4px 10px -5px rgba(0, 0, 0, 0.04);
+}

@@ -1,0 +1,23 @@
+# MIME Types for JavaScript modules
+AddType application/javascript .js .mjs
+AddType text/css .css
+AddType image/svg+xml .svg
+AddType application/json .json
+AddType font/woff2 .woff2
+AddType font/woff .woff
+
+# Enable rewrite engine
+RewriteEngine On
+
+# If the request is for the API, don't rewrite
+RewriteRule ^server/ - [L]
+
+# Rewrite /uploads/ to /server/uploads/ for image serving
+RewriteRule ^uploads/(.*)$ server/uploads/$1 [L]
+
+# If the requested file exists, serve it directly
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Otherwise, serve index.html (SPA routing)
+RewriteRule ^ index.html [L]
