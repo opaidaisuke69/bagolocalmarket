@@ -85,8 +85,13 @@ export default function LoginScreen() {
             </View>
 
             {/* Password */}
-            <View style={{ marginBottom: 28 }}>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: COLORS.text, marginBottom: 8 }}>Password</Text>
+            <View style={{ marginBottom: 16 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: COLORS.text }}>Password</Text>
+                <TouchableOpacity onPress={() => router.push('/forgot-password')}>
+                  <Text style={{ fontSize: 12, color: COLORS.primary, fontWeight: '600' }}>Forgot password?</Text>
+                </TouchableOpacity>
+              </View>
               <TextInput
                 value={password}
                 onChangeText={setPassword}
@@ -109,6 +114,9 @@ export default function LoginScreen() {
               />
             </View>
 
+            {/* spacer before button */}
+            <View style={{ height: 12 }} />
+
             {/* Button */}
             <TouchableOpacity
               onPress={handleLogin}
@@ -128,6 +136,14 @@ export default function LoginScreen() {
               ) : (
                 <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>Sign In</Text>
               )}
+            </TouchableOpacity>
+
+            {/* Sign up link */}
+            <TouchableOpacity onPress={() => router.push('/signup')} style={{ marginTop: 24, alignItems: 'center' }}>
+              <Text style={{ fontSize: 14, color: COLORS.textSecondary }}>
+                New rider?{' '}
+                <Text style={{ color: COLORS.primary, fontWeight: '700' }}>Create an account</Text>
+              </Text>
             </TouchableOpacity>
           </View>
         </ScrollView>

@@ -12,6 +12,7 @@ interface CartItem {
   quantity: number;
   stock: number;
   store_name: string;
+  seller_id?: number;
   seller_name?: string;
 }
 

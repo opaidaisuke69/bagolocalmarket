@@ -1,10 +1,13 @@
 <?php
+// Set PHP timezone to Asia/Manila for all date/time operations
+date_default_timezone_set('Asia/Manila');
+
 class Database {
-    private $host = "localhost";
-    private $db_name = "gssvbcrs_bago_marketplace";
-    private $username = "gssvbcrs_bago_marketplace_user";
-    private $password = "gssvbcrs_bago_marketplace_pass";
-    public $conn;
+    private $host     = "localhost";
+    private $db_name  = "bago_marketplace";
+    private $username = "root";
+    private $password = "";
+    public  $conn;
 
     public function getConnection() {
         $this->conn = null;
@@ -16,7 +19,9 @@ class Database {
             );
             $this->conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             $this->conn->exec("set names utf8mb4");
-        } catch(PDOException $exception) {
+            // Sync MySQL session timezone with PHP
+            $this->conn->exec("SET time_zone = '+08:00'");
+        } catch (PDOException $exception) {
             http_response_code(500);
             echo json_encode(["message" => "Database connection failed."]);
             exit;

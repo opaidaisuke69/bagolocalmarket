@@ -172,11 +172,33 @@ export default function OrderDetail() {
           <div className="bg-white rounded-xl border p-5">
             <h3 className="font-semibold text-gray-900 mb-3">Payment Summary</h3>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-gray-500">Subtotal</span><span>₱{Number(order.subtotal).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Delivery Fee</span><span>₱{Number(order.delivery_fee).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span></div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Seller Subtotal</span>
+                <span>₱{Number(order.subtotal).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+              </div>
+              {order.commission_amount > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Platform Fee ({Math.round((order.commission_rate || 0.02) * 100)}%)</span>
+                  <span>₱{Number(order.commission_amount).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-gray-500 flex items-center gap-1">
+                  Shipping Fee
+                  {order.distance_zone && (
+                    <span className="text-[10px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full ml-1">
+                      Zone {order.distance_zone}
+                    </span>
+                  )}
+                </span>
+                <span>₱{Number(order.delivery_fee).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+              </div>
               <div className="flex justify-between"><span className="text-gray-500">Payment</span><span>Cash on Delivery</span></div>
               <hr />
-              <div className="flex justify-between font-semibold"><span>Total</span><span className="text-primary-800">₱{Number(order.total_amount).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span></div>
+              <div className="flex justify-between font-semibold">
+                <span>Total</span>
+                <span className="text-primary-800">₱{Number(order.total_amount).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+              </div>
             </div>
           </div>
 

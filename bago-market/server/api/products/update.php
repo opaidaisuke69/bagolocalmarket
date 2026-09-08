@@ -34,7 +34,7 @@ try {
 
     if (isset($data->name)) { $fields[] = "name = ?"; $params[] = $data->name; }
     if (isset($data->description)) { $fields[] = "description = ?"; $params[] = $data->description; }
-    if (isset($data->price)) { $fields[] = "price = ?"; $params[] = $data->price; }
+    if (isset($data->price)) { $fields[] = "price = ?"; $params[] = round((float)$data->price * 1.02, 2); } // store price + 2% platform commission
     if (isset($data->stock)) { $fields[] = "stock = ?"; $params[] = $data->stock; }
     if (isset($data->category_id)) { $fields[] = "category_id = ?"; $params[] = $data->category_id; }
     if (isset($data->condition)) { $fields[] = "`condition` = ?"; $params[] = $data->condition; }

@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
-import { LayoutDashboard, Users, UserCheck, Package, CheckSquare, ShoppingBag, Tag, BarChart3, Activity, AlertTriangle, Bell, Settings, Menu, X, LogOut, Shield, User } from 'lucide-react';
+import { LayoutDashboard, Users, UserCheck, Package, CheckSquare, ShoppingBag, Tag, BarChart3, Activity, AlertTriangle, Bell, Settings, Menu, X, LogOut, Shield, User, Truck, ArrowUpFromLine } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import logoImg from '../assets/images/logo.png';
 
@@ -11,18 +11,20 @@ export default function AdminLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const menuItems = [
-    { path: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/admin/sellers', icon: UserCheck, label: 'Sellers' },
-    { path: '/admin/seller-applications', icon: UserCheck, label: 'Seller Applications' },
-    { path: '/admin/buyers', icon: Users, label: 'Buyers' },
-    { path: '/admin/products', icon: Package, label: 'Products' },
-    { path: '/admin/product-approvals', icon: CheckSquare, label: 'Product Approvals' },
-    { path: '/admin/orders', icon: ShoppingBag, label: 'Orders' },
-    { path: '/admin/categories', icon: Tag, label: 'Categories' },
-    { path: '/admin/reports', icon: BarChart3, label: 'Reports' },
-    { path: '/admin/activities', icon: Activity, label: 'Activities' },
-    { path: '/admin/warnings', icon: AlertTriangle, label: 'Warnings & Bans' },
-    { path: '/admin/settings', icon: Settings, label: 'Settings' },
+    { path: '/admin',                    icon: LayoutDashboard, label: 'Dashboard' },
+    { path: '/admin/sellers',            icon: UserCheck,       label: 'Seller Credentials' },
+    { path: '/admin/seller-applications',icon: UserCheck,       label: 'Seller Applications' },
+    { path: '/admin/riders',             icon: Truck,           label: 'Riders' },
+    { path: '/admin/buyers',             icon: Users,           label: 'Buyers' },
+    { path: '/admin/products',           icon: Package,         label: 'Products' },
+    { path: '/admin/product-approvals',  icon: CheckSquare,     label: 'Product Approvals' },
+    { path: '/admin/orders',             icon: ShoppingBag,     label: 'Orders' },
+    { path: '/admin/commissions',        icon: BarChart3,       label: 'Commission Report' },
+    { path: '/admin/remittances',        icon: ArrowUpFromLine, label: 'Remittances' },
+    { path: '/admin/categories',         icon: Tag,             label: 'Categories' },
+    { path: '/admin/activities',         icon: Activity,        label: 'Activities' },
+    { path: '/admin/warnings',           icon: AlertTriangle,   label: 'Warnings & Bans' },
+    { path: '/admin/settings',           icon: Settings,        label: 'Settings' },
   ];
 
   const isActive = (path) => location.pathname === path;

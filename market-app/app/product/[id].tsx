@@ -25,7 +25,7 @@ import {
   MessageSquare,
   ThumbsUp,
 } from 'lucide-react-native';
-import { productsAPI } from '../../services/api';
+import { productsAPI, recommendationsAPI } from '../../services/api';
 import { IMAGE_BASE_URL } from '../../constants/api';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -91,6 +91,8 @@ export default function ProductDetailScreen() {
       try {
         const data = await productsAPI.detail(Number(id));
         setProduct(data.product);
+        // Track view interaction for AI recommendations
+        recommendationsAPI.track({ product_id: Number(id), interaction_type: 'view' }).catch(() => {});
       } catch {
         showToast('Failed to load product', 'error');
       } finally {
@@ -100,26 +102,50 @@ export default function ProductDetailScreen() {
     if (id) fetchProduct();
   }, [id]);
 
-  // Fetch recommended products from same category
+  // Fetch AI-powered similar products
   const fetchRecommended = useCallback(async (page: number, append = false) => {
-    if (!product?.category_slug && !product?.category_id) return;
+    if (!product?.id) return;
     setRecLoading(true);
     try {
-      const res = await productsAPI.list({
-        category: product.category_slug || undefined,
+      // Use AI similar endpoint first, fall back to category filter
+      const res = await recommendationsAPI.get({
+        type: 'similar',
+        product_id: product.id,
         limit: 10,
-        page,
-      });
-      const items = (res.products || []).filter((p: any) => String(p.id) !== String(id));
-      if (append) {
-        setRecommended(prev => [...prev, ...items]);
+      }).catch(() => null);
+
+      let items: any[] = [];
+      if (res && (res.recommendations || []).length > 0) {
+        items = (res.recommendations || []).filter((p: any) => String(p.id) !== String(id));
       } else {
-        setRecommended(items);
+        // Fallback: regular products list by category
+        const fallback = await productsAPI.list({
+          category: product.category_slug || undefined,
+          limit: 10,
+          page,
+        });
+        items = (fallback.products || []).filter((p: any) => String(p.id) !== String(id));
+        setRecHasMore(page < (fallback.total_pages || 1));
       }
-      setRecHasMore(page < (res.total_pages || 1));
+
+      if (append) {
+        setRecommended(prev => {
+          const existingIds = new Set(prev.map((p: any) => p.id));
+          const unique = items.filter((p: any) => !existingIds.has(p.id));
+          return [...prev, ...unique];
+        });
+      } else {
+        // Deduplicate by id in case API returns dupes
+        const seen = new Set<number>();
+        setRecommended(items.filter((p: any) => {
+          if (seen.has(p.id)) return false;
+          seen.add(p.id);
+          return true;
+        }));
+      }
     } catch {}
     finally { setRecLoading(false); }
-  }, [product?.category_slug, product?.category_id, id]);
+  }, [product?.id, product?.category_slug, id]);
 
   useEffect(() => {
     if (product) {
@@ -142,6 +168,8 @@ export default function ProductDetailScreen() {
       return;
     }
     addToCart(Number(id), quantity);
+    // Track add_to_cart interaction for AI
+    recommendationsAPI.track({ product_id: Number(id), interaction_type: 'add_to_cart' }).catch(() => {});
   };
 
   // Build all image URLs
@@ -230,7 +258,10 @@ export default function ProductDetailScreen() {
     );
   }
 
-  const inStock = (product.stock || 0) > 0 || product.is_available;
+  // PHP returns values as strings — cast explicitly before comparing
+  const stockNum = Number(product.stock ?? 0);
+  const isAvailable = Number(product.is_available ?? 1) !== 0;
+  const inStock = stockNum > 0 || isAvailable;
   const avgRating = Number(product.rating || 0);
 
   return (
@@ -493,8 +524,8 @@ export default function ProductDetailScreen() {
 
           {recommended.length > 0 ? (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 12, gap: 8 }}>
-              {recommended.map((item) => (
-                <ProductCard key={item.id} product={item} />
+              {recommended.map((item, index) => (
+                <ProductCard key={`similar-${item.id}-${index}`} product={item} />
               ))}
             </View>
           ) : !recLoading ? (

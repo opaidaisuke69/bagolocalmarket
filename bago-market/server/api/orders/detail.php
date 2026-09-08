@@ -19,7 +19,8 @@ if ($id === 0) {
 // Get order
 $stmt = $db->prepare("SELECT o.*, a.recipient_name, a.contact_number as delivery_contact,
     a.street_address, a.landmark, a.delivery_notes as address_notes,
-    b.name as barangay_name, u.full_name as buyer_name, u.email as buyer_email
+    b.name as barangay_name, b.distance_zone, b.shipping_fee as barangay_shipping_fee,
+    u.full_name as buyer_name, u.email as buyer_email
     FROM orders o
     LEFT JOIN addresses a ON o.address_id = a.id
     LEFT JOIN barangays b ON a.barangay_id = b.id
@@ -42,7 +43,7 @@ if ($payload['role'] === 'buyer' && $order['buyer_id'] != $payload['user_id']) {
     exit;
 }
 
-// Get order items
+// Get order items (include per-item commission breakdown)
 $stmt = $db->prepare("SELECT oi.*, p.name as product_name, p.slug,
     (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) as product_image,
     u.full_name as seller_name, sp.store_name

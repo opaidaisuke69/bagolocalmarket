@@ -3,6 +3,8 @@ require_once '../config/cors.php';
 require_once '../config/database.php';
 require_once '../middleware/auth.php';
 
+header('Content-Type: application/json');
+
 $database = new Database();
 $db = $database->getConnection();
 
@@ -14,7 +16,19 @@ if (empty($data->email) || empty($data->password)) {
     exit;
 }
 
-$stmt = $db->prepare("SELECT id, email, password, full_name, role, status, profile_image, contact_number FROM users WHERE email = ? AND deleted_at IS NULL");
+// Check if email_verified_at column exists (graceful fallback before migration is run)
+$hasVerifiedCol = false;
+try {
+    $colCheck = $db->query("SHOW COLUMNS FROM users LIKE 'email_verified_at'");
+    $hasVerifiedCol = ($colCheck && $colCheck->rowCount() > 0);
+} catch (Exception $e) {}
+
+$selectCols = "id, email, password, full_name, role, status, profile_image, contact_number";
+if ($hasVerifiedCol) {
+    $selectCols .= ", email_verified_at";
+}
+
+$stmt = $db->prepare("SELECT $selectCols FROM users WHERE email = ? AND deleted_at IS NULL");
 $stmt->execute([$data->email]);
 
 if ($stmt->rowCount() === 0) {
@@ -43,6 +57,16 @@ if ($user['status'] === 'suspended') {
     exit;
 }
 
+// Email verification check — only enforce if column exists and is populated
+if ($hasVerifiedCol && array_key_exists('email_verified_at', $user) && $user['email_verified_at'] === null) {
+    http_response_code(403);
+    echo json_encode([
+        "message" => "Please verify your email address before logging in. Check your inbox.",
+        "email_unverified" => true,
+    ]);
+    exit;
+}
+
 // Check seller approval
 if ($user['role'] === 'seller') {
     $stmtSeller = $db->prepare("SELECT approval_status FROM seller_profiles WHERE user_id = ?");
@@ -55,17 +79,33 @@ if ($user['role'] === 'seller') {
     }
 }
 
+// Check rider approval — only if rider_profiles table exists
+if ($user['role'] === 'rider') {
+    try {
+        $stmtRider = $db->prepare("SELECT approval_status FROM rider_profiles WHERE user_id = ?");
+        $stmtRider->execute([$user['id']]);
+        $rider = $stmtRider->fetch(PDO::FETCH_ASSOC);
+        if ($rider && $rider['approval_status'] !== 'approved') {
+            http_response_code(403);
+            echo json_encode(["message" => "Your rider account is pending admin approval."]);
+            exit;
+        }
+    } catch (Exception $e) {
+        // rider_profiles table may not exist yet — allow login
+    }
+}
+
 // Update last login
 $stmt = $db->prepare("UPDATE users SET last_login_at = NOW() WHERE id = ?");
 $stmt->execute([$user['id']]);
 
-$auth = new AuthMiddleware($db);
+$auth  = new AuthMiddleware($db);
 $token = $auth->generateToken($user['id'], $user['role']);
 
 unset($user['password']);
 
 echo json_encode([
     "message" => "Login successful.",
-    "token" => $token,
-    "user" => $user
+    "token"   => $token,
+    "user"    => $user,
 ]);

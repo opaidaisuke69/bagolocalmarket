@@ -3,6 +3,7 @@ import { ShoppingCart, Heart, Star, MapPin, Sparkles, Package } from 'lucide-rea
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
 import { useAuthModal } from '../../context/AuthModalContext';
+import { recommendationsAPI } from '../../api/services';
 
 export default function ProductCard({ product, badge }) {
   const { addToCart } = useCart();
@@ -13,7 +14,16 @@ export default function ProductCard({ product, badge }) {
     e.preventDefault();
     e.stopPropagation();
     if (!user) { openLogin(); return; }
-    if (user.role === 'buyer') addToCart(product.id);
+    if (user.role === 'buyer') {
+      addToCart(product.id);
+      recommendationsAPI.track({ product_id: product.id, interaction_type: 'add_to_cart' }).catch(() => {});
+    }
+  };
+
+  const handleClick = () => {
+    if (user) {
+      recommendationsAPI.track({ product_id: product.id, interaction_type: 'click' }).catch(() => {});
+    }
   };
 
   const inStock = product.stock > 0 || product.is_available;
@@ -22,6 +32,7 @@ export default function ProductCard({ product, badge }) {
   return (
     <Link
       to={`/product/${product.id}`}
+      onClick={handleClick}
       className="group bg-white rounded-2xl overflow-hidden border border-gray-100 hover:border-primary-200 hover:shadow-xl transition-all duration-300 flex flex-col"
     >
       {/* Image */}

@@ -23,6 +23,12 @@
     @keyframes shimmer { 0% { background-position: -200px 0; } 100% { background-position: calc(200px + 100%) 0; } }
     .toast { animation: slideIn 0.3s ease-out; }
     @keyframes slideIn { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    /* iOS safe area for bottom nav */
+    .safe-bottom { padding-bottom: max(0.625rem, env(safe-area-inset-bottom)); }
+    /* Smooth page scrolling */
+    html { scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
+    /* Prevent text selection on buttons */
+    button { -webkit-tap-highlight-color: transparent; user-select: none; }
   </style>
 </head>
 <body class="bg-gray-100 min-h-screen">

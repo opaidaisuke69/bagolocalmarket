@@ -256,6 +256,22 @@ export default function OrderDetail() {
             <Text style={{ fontSize: 13, fontWeight: '500', color: COLORS.textSecondary }}>Collect (COD)</Text>
             <Text style={{ fontSize: 20, fontWeight: '800', color: COLORS.primary }}>₱{Number(order.total_amount || 0).toLocaleString()}</Text>
           </View>
+
+          {/* Rider Commission (Shipping Fee) */}
+          {Number(order.delivery_fee || order.rider_earning || 0) > 0 && (
+            <View style={{
+              flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+              marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: COLORS.border,
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={{ fontSize: 15 }}>🏍️</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: COLORS.success }}>Your Commission</Text>
+              </View>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: COLORS.success }}>
+                +₱{Number(order.delivery_fee || order.rider_earning || 0).toLocaleString()}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Proof Photos */}

@@ -13,7 +13,7 @@ class AuthMiddleware {
             'user_id' => $user_id,
             'role' => $role,
             'iat' => time(),
-            'exp' => time() + (24 * 60 * 60) // 24 hours
+            'exp' => time() + (365 * 24 * 60 * 60) // 1 year
         ]);
 
         $base64Header = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($header));

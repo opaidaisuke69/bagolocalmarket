@@ -7,6 +7,7 @@ import { COLORS } from '../../constants';
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
 import { useWishlist } from '../../context/WishlistContext';
+import { recommendationsAPI } from '../../services/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 32 - 8) / 2; // 2 columns with gap
@@ -30,9 +31,10 @@ interface ProductCardProps {
   badge?: string;
   onPress?: () => void;
   disableWishlistRemove?: boolean;
+  cardWidth?: number;
 }
 
-export function ProductCard({ product, badge, onPress, disableWishlistRemove }: ProductCardProps) {
+export function ProductCard({ product, badge, onPress, disableWishlistRemove, cardWidth }: ProductCardProps) {
   const router = useRouter();
   const { addToCart } = useCart();
   const { user } = useAuth();
@@ -40,8 +42,11 @@ export function ProductCard({ product, badge, onPress, disableWishlistRemove }: 
 
   const wishlisted = isInWishlist(product.id);
 
-  const inStock = (product.stock ?? 0) > 0 || product.is_available;
-  const isLowStock = (product.stock ?? 0) > 0 && (product.stock ?? 0) <= 5;
+  // PHP returns values as strings — cast explicitly before comparing
+  const stockNum = Number(product.stock ?? 0);
+  const isAvailable = Number(product.is_available ?? 1) !== 0; // default to available if field missing
+  const inStock = stockNum > 0 || isAvailable;
+  const isLowStock = stockNum > 0 && stockNum <= 5;
 
   const imageUri = (() => {
     const imgPath = product.primary_image 
@@ -58,22 +63,25 @@ export function ProductCard({ product, badge, onPress, disableWishlistRemove }: 
   const handlePress = () => {
     if (onPress) onPress();
     else router.push(`/product/${product.id}` as any);
+    // Track click for AI recommendations
+    recommendationsAPI.track({ product_id: product.id, interaction_type: 'click' }).catch(() => {});
   };
 
   const handleAddToCart = () => {
     if (!user) { router.push('/auth/login' as any); return; }
     addToCart(product.id);
+    recommendationsAPI.track({ product_id: product.id, interaction_type: 'add_to_cart' }).catch(() => {});
   };
 
   return (
     <TouchableOpacity
       onPress={handlePress}
       activeOpacity={0.95}
-      style={{ width: CARD_WIDTH, marginBottom: 8 }}
+      style={{ width: cardWidth ?? CARD_WIDTH, marginBottom: 8 }}
       className="bg-white rounded-lg overflow-hidden border border-gray-100"
     >
       {/* Image */}
-      <View className="bg-gray-50 relative" style={{ height: CARD_WIDTH }}>
+      <View className="bg-gray-50 relative" style={{ height: cardWidth ?? CARD_WIDTH }}>
         {imageUri ? (
           <Image
             source={{ uri: imageUri }}

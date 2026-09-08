@@ -18,8 +18,10 @@ export default function RootLayout() {
               <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#fff' } }}>
                 <Stack.Screen name="(tabs)" />
                 <Stack.Screen name="product/[id]" options={{ animation: 'slide_from_right' }} />
-                <Stack.Screen name="auth/login" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-                <Stack.Screen name="auth/register" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                <Stack.Screen name="auth/login"           options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                <Stack.Screen name="auth/register"        options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                <Stack.Screen name="auth/forgot-password" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                <Stack.Screen name="auth/reset-password"  options={{ animation: 'slide_from_right' }} />
                 <Stack.Screen name="cart" options={{ animation: 'slide_from_right' }} />
                 <Stack.Screen name="orders/index" options={{ animation: 'slide_from_right' }} />
                 <Stack.Screen name="orders/[id]" options={{ animation: 'slide_from_right' }} />
@@ -28,6 +30,9 @@ export default function RootLayout() {
                 <Stack.Screen name="purchases" options={{ animation: 'slide_from_right' }} />
                 <Stack.Screen name="rate/[orderId]" options={{ animation: 'slide_from_bottom' }} />
                 <Stack.Screen name="checkout" options={{ animation: 'slide_from_right' }} />
+                <Stack.Screen name="address/index" options={{ animation: 'slide_from_right' }} />
+                <Stack.Screen name="address/add"   options={{ animation: 'slide_from_bottom' }} />
+                <Stack.Screen name="address/edit"  options={{ animation: 'slide_from_bottom' }} />
               </Stack>
               <StatusBar style="light" backgroundColor={COLORS.primary[800]} />
             </View>

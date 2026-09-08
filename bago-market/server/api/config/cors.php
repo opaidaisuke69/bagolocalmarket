@@ -5,6 +5,7 @@ $allowedOrigins = [
     'http://10.0.2.2',
     'http://localhost:8081',
     'http://localhost:19006',
+    'http://10.30.253.85',          // local dev — React Native on LAN
     'https://bago.market.quickycloud.com',
     'http://bago.market.quickycloud.com',
 ];

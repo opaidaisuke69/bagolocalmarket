@@ -31,7 +31,7 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
 
   const handleRegister = async () => {
-    if (!name.trim() || !email.trim() || !password.trim()) {
+    if (!name.trim() || !email.trim() || !phone.trim() || !password.trim()) {
       showToast('Please fill in all required fields', 'warning');
       return;
     }
@@ -41,8 +41,15 @@ export default function RegisterScreen() {
     }
     setLoading(true);
     try {
-      await register({ name: name.trim(), email: email.trim(), phone: phone.trim(), password, role: 'buyer' });
-      showToast('Account created! Please login.', 'success');
+      await register({
+        full_name: name.trim(),
+        email: email.trim(),
+        contact_number: phone.trim(),
+        password,
+        confirm_password: confirmPassword,
+        role: 'buyer',
+      });
+      showToast('Account created! Please check your email to verify.', 'success');
       router.replace('/auth/login');
     } catch (err: any) {
       showToast(err.message || 'Registration failed', 'error');
@@ -104,7 +111,7 @@ export default function RegisterScreen() {
 
           {/* Phone */}
           <View className="mb-4">
-            <Text className="text-xs font-semibold text-gray-500 mb-2 uppercase">Phone (optional)</Text>
+            <Text className="text-xs font-semibold text-gray-500 mb-2 uppercase">Contact Number</Text>
             <View className="relative">
               <View className="absolute left-4 top-0 bottom-0 justify-center z-10">
                 <Phone size={16} color={COLORS.gray[400]} />

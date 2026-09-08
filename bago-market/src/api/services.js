@@ -3,8 +3,18 @@ import api from './axios';
 // Auth
 export const authAPI = {
   login: (data) => api.post('/auth/login.php', data),
+  // Buyer registration (JSON)
   register: (data) => api.post('/auth/register.php', data),
+  // Seller registration (multipart/form-data with file uploads)
+  registerSeller: (formData) => api.post('/auth/register.php', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }),
   me: () => api.get('/auth/me.php'),
+  verifyEmail: (token) => api.get('/auth/verify-email.php', { params: { token } }),
+  resendVerification: (data) => api.post('/auth/resend-verification.php', data),
+  forgotPassword: (data) => api.post('/auth/forgot-password.php', data),
+  validateResetToken: (token) => api.get('/auth/reset-password.php', { params: { token } }),
+  resetPassword: (data) => api.post('/auth/reset-password.php', data),
 };
 
 // Products
@@ -33,6 +43,11 @@ export const ordersAPI = {
   list: (params) => api.get('/orders/list.php', { params }),
   detail: (id) => api.get('/orders/detail.php', { params: { id } }),
   updateStatus: (data) => api.put('/orders/update-status.php', data),
+  shippingFee: (addressId, sellerIds = []) => {
+    const params = { address_id: addressId };
+    if (sellerIds.length > 0) params.seller_ids = sellerIds.join(',');
+    return api.get('/orders/shipping-fee.php', { params });
+  },
 };
 
 // Recommendations
@@ -95,4 +110,11 @@ export const adminAPI = {
   users: (params) => api.get('/admin/users.php', { params }),
   updateUser: (data) => api.put('/admin/users.php', data),
   activities: (params) => api.get('/admin/activities.php', { params }),
+  riders: (params) => api.get('/admin/riders.php', { params }),
+  updateRider: (data) => api.put('/admin/riders.php', data),
+  commissions: (params) => api.get('/admin/commissions.php', { params }),
+  remittances: (params) => api.get('/admin/remittance.php', { params }),
+  addQrCode: (data) => api.post('/admin/remittance.php', data),
+  updateRemittance: (data) => api.put('/admin/remittance.php', data),
+  deleteQrCode: (id) => api.delete(`/admin/remittance.php?qr_id=${id}`),
 };

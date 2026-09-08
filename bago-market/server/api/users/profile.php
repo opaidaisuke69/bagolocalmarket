@@ -53,7 +53,7 @@ if ($method === 'GET') {
             exit;
         }
 
-        $uploadDir = $_SERVER['DOCUMENT_ROOT'] . '/server/uploads/profiles/';
+        $uploadDir = realpath(__DIR__ . '/../../') . '/uploads/profiles/';
         if (!is_dir($uploadDir)) { mkdir($uploadDir, 0755, true); }
 
         $filename = 'profile_' . $payload['user_id'] . '_' . time() . '.' . $extension;

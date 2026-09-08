@@ -23,7 +23,8 @@ if ($stmt->rowCount() === 0) {
 }
 
 // Get cart items
-$stmt = $db->prepare("SELECT ci.*, p.name as product_name, p.price, p.stock, p.is_available,
+$stmt = $db->prepare("SELECT ci.*, p.name as product_name, p.price,
+    p.stock, p.is_available,
     p.seller_id, u.full_name as seller_name, sp.store_name,
     (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) as product_image,
     b.name as seller_barangay

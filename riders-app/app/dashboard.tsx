@@ -191,9 +191,17 @@ export default function Dashboard() {
               <Text style={{ fontSize: 17, fontWeight: '700', color: '#fff', marginTop: 2 }}>{user?.name || user?.full_name || 'Rider'}</Text>
             </View>
           </View>
-          <TouchableOpacity onPress={() => router.push('/profile' as any)} style={{ paddingHorizontal: 16, paddingVertical: 9, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }}>
-            <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '600' }}>Profile</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <TouchableOpacity onPress={() => router.push('/earnings' as any)} style={{ paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', alignItems: 'center' }}>
+              <Text style={{ fontSize: 16 }}>📊</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push('/remittance' as any)} style={{ paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', alignItems: 'center' }}>
+              <Text style={{ fontSize: 16 }}>💸</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push('/profile' as any)} style={{ paddingHorizontal: 16, paddingVertical: 9, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }}>
+              <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '600' }}>Profile</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Tabs */}

@@ -8,42 +8,66 @@ $db = $database->getConnection();
 $auth = new AuthMiddleware($db);
 $payload = $auth->requireAuth();
 
+// Auto-add coordinate columns if missing
+foreach ([
+    "ALTER TABLE addresses ADD COLUMN IF NOT EXISTS latitude  DECIMAL(10,8) NULL",
+    "ALTER TABLE addresses ADD COLUMN IF NOT EXISTS longitude DECIMAL(11,8) NULL",
+] as $col) {
+    try { $db->exec($col); } catch (Exception $e) {}
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
-$data = json_decode(file_get_contents("php://input"));
+$data   = json_decode(file_get_contents("php://input"));
 
 if ($method === 'POST') {
-    if (empty($data->recipient_name) || empty($data->contact_number) || empty($data->barangay_id) || empty($data->street_address)) {
+    if (empty($data->recipient_name) || empty($data->contact_number) || empty($data->street_address)) {
         http_response_code(400);
-        echo json_encode(["message" => "All address fields are required."]);
+        echo json_encode(["message" => "Recipient name, contact number and street address are required."]);
         exit;
     }
 
-    // Verify barangay is valid (within Bago City)
-    $stmt = $db->prepare("SELECT id FROM barangays WHERE id = ?");
-    $stmt->execute([$data->barangay_id]);
-    if ($stmt->rowCount() === 0) {
+    // Coordinates are required for accurate shipping fee
+    if (empty($data->latitude) || empty($data->longitude)) {
         http_response_code(400);
-        echo json_encode(["message" => "Invalid barangay. Delivery is only available within Bago City."]);
+        echo json_encode(["message" => "Please pin your exact location on the map."]);
+        exit;
+    }
+
+    // Enforce 5-address limit
+    $countStmt = $db->prepare("SELECT COUNT(*) FROM addresses WHERE user_id = ? AND deleted_at IS NULL");
+    $countStmt->execute([$payload['user_id']]);
+    if ((int)$countStmt->fetchColumn() >= 5) {
+        http_response_code(422);
+        echo json_encode(["message" => "You can only save up to 5 addresses. Please remove one first."]);
         exit;
     }
 
     $isDefault = isset($data->is_default) && $data->is_default;
+    // First address is always default
+    $countStmt->execute([$payload['user_id']]);
+    if ((int)$countStmt->fetchColumn() === 0) $isDefault = true;
 
     if ($isDefault) {
-        $stmt = $db->prepare("UPDATE addresses SET is_default = 0 WHERE user_id = ?");
-        $stmt->execute([$payload['user_id']]);
+        $db->prepare("UPDATE addresses SET is_default = 0 WHERE user_id = ?")->execute([$payload['user_id']]);
     }
 
-    $stmt = $db->prepare("INSERT INTO addresses (user_id, recipient_name, contact_number, barangay_id, street_address, landmark, delivery_notes, is_default) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt = $db->prepare(
+        "INSERT INTO addresses
+            (user_id, recipient_name, contact_number, barangay_id, street_address,
+             landmark, delivery_notes, is_default, latitude, longitude)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
     $stmt->execute([
         $payload['user_id'],
         $data->recipient_name,
         $data->contact_number,
-        $data->barangay_id,
+        !empty($data->barangay_id) ? (int)$data->barangay_id : null,
         $data->street_address,
-        $data->landmark ?? '',
+        $data->landmark       ?? '',
         $data->delivery_notes ?? '',
-        $isDefault ? 1 : 0
+        $isDefault ? 1 : 0,
+        (float)$data->latitude,
+        (float)$data->longitude,
     ]);
 
     http_response_code(201);
@@ -65,21 +89,28 @@ if ($method === 'POST') {
     }
 
     if (isset($data->is_default) && $data->is_default) {
-        $stmt = $db->prepare("UPDATE addresses SET is_default = 0 WHERE user_id = ?");
-        $stmt->execute([$payload['user_id']]);
+        $db->prepare("UPDATE addresses SET is_default = 0 WHERE user_id = ?")->execute([$payload['user_id']]);
     }
 
-    $stmt = $db->prepare("UPDATE addresses SET recipient_name = ?, contact_number = ?, barangay_id = ?, street_address = ?, landmark = ?, delivery_notes = ?, is_default = ? WHERE id = ? AND user_id = ?");
+    $stmt = $db->prepare(
+        "UPDATE addresses SET
+            recipient_name = ?, contact_number = ?, barangay_id = ?,
+            street_address = ?, landmark = ?, delivery_notes = ?, is_default = ?,
+            latitude = ?, longitude = ?
+         WHERE id = ? AND user_id = ?"
+    );
     $stmt->execute([
         $data->recipient_name ?? '',
         $data->contact_number ?? '',
-        $data->barangay_id ?? null,
+        !empty($data->barangay_id) ? (int)$data->barangay_id : null,
         $data->street_address ?? '',
-        $data->landmark ?? '',
+        $data->landmark       ?? '',
         $data->delivery_notes ?? '',
         isset($data->is_default) ? ($data->is_default ? 1 : 0) : 0,
+        !empty($data->latitude)  ? (float)$data->latitude  : null,
+        !empty($data->longitude) ? (float)$data->longitude : null,
         $data->id,
-        $payload['user_id']
+        $payload['user_id'],
     ]);
 
     echo json_encode(["message" => "Address updated successfully."]);
@@ -92,8 +123,8 @@ if ($method === 'POST') {
         exit;
     }
 
-    $stmt = $db->prepare("UPDATE addresses SET deleted_at = NOW() WHERE id = ? AND user_id = ?");
-    $stmt->execute([$id, $payload['user_id']]);
+    $db->prepare("UPDATE addresses SET deleted_at = NOW() WHERE id = ? AND user_id = ?")
+       ->execute([$id, $payload['user_id']]);
 
     echo json_encode(["message" => "Address deleted successfully."]);
 }

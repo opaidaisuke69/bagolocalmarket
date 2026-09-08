@@ -30,6 +30,10 @@ export default function ProductDetail() {
       try {
         const res = await productsAPI.detail(id);
         setProduct(res.data.product);
+        // Track view for AI recommendations engine
+        if (user) {
+          recommendationsAPI.track({ product_id: Number(id), interaction_type: 'view' }).catch(() => {});
+        }
         const [simRes, aiRes] = await Promise.all([
           recommendationsAPI.get({ type: 'similar', product_id: id, limit: 6 }).catch(() => ({ data: { recommendations: [] } })),
           recommendationsAPI.get({ type: 'for_you', limit: 6 }).catch(() => ({ data: { recommendations: [] } })),
@@ -51,11 +55,14 @@ export default function ProductDetail() {
   const handleAddToCart = () => {
     if (!user) { openLogin(); return; }
     addToCart(product.id, quantity);
+    // Track add_to_cart for AI engine
+    recommendationsAPI.track({ product_id: product.id, interaction_type: 'add_to_cart' }).catch(() => {});
   };
 
   const handleBuyNow = () => {
     if (!user) { openLogin(); return; }
     addToCart(product.id, quantity);
+    recommendationsAPI.track({ product_id: product.id, interaction_type: 'add_to_cart' }).catch(() => {});
     navigate('/cart');
   };
 

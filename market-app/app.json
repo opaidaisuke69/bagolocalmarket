@@ -27,6 +27,13 @@
     "plugins": [
       "expo-router",
       [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Bago Market to use your location for accurate delivery fee calculation.",
+          "locationWhenInUsePermission": "Allow Bago Market to use your location to pin your delivery address."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/images/logo.png",

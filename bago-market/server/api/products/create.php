@@ -56,7 +56,7 @@ try {
         $data->name,
         $slug,
         $description,
-        $data->price,
+        round((float)$data->price * 1.02, 2), // store price + 2% platform commission
         $stock,
         $condition,
         $brand,

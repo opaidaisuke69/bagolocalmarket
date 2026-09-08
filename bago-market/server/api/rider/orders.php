@@ -16,7 +16,9 @@ if ($method === 'GET') {
     
     if ($tab === 'delivering') {
         // Rider's active deliveries (picked up, out for delivery)
-        $query = "SELECT o.*, o.order_number, o.total_amount, o.created_at,
+        $query = "SELECT o.*,
+            COALESCE(NULLIF(o.rider_earning, 0), o.delivery_fee, 0) AS rider_earning,
+            o.order_number, o.total_amount, o.created_at,
             a.recipient_name, a.contact_number, a.street_address,
             b.name as barangay_name,
             u.full_name as buyer_name,
@@ -33,7 +35,9 @@ if ($method === 'GET') {
         $stmt->execute([$rider_id]);
     } elseif ($tab === 'completed') {
         // Completed deliveries
-        $query = "SELECT o.*, o.order_number, o.total_amount, o.created_at,
+        $query = "SELECT o.*,
+            COALESCE(NULLIF(o.rider_earning, 0), o.delivery_fee, 0) AS rider_earning,
+            o.order_number, o.total_amount, o.created_at,
             a.recipient_name, a.contact_number, a.street_address,
             b.name as barangay_name,
             u.full_name as buyer_name,
@@ -51,7 +55,9 @@ if ($method === 'GET') {
         $stmt->execute([$rider_id]);
     } elseif (isset($_GET['my_deliveries'])) {
         // Legacy: Rider's own active and completed deliveries
-        $query = "SELECT o.*, o.order_number, o.total_amount, o.created_at,
+        $query = "SELECT o.*,
+            COALESCE(NULLIF(o.rider_earning, 0), o.delivery_fee, 0) AS rider_earning,
+            o.order_number, o.total_amount, o.created_at,
             a.recipient_name, a.contact_number, a.street_address,
             b.name as barangay_name,
             u.full_name as buyer_name,
@@ -68,7 +74,9 @@ if ($method === 'GET') {
         $stmt->execute([$rider_id]);
     } else {
         // Available orders for pickup: 'ready_to_ship' (unassigned OR assigned to this rider)
-        $query = "SELECT o.*, o.order_number, o.total_amount, o.created_at,
+        $query = "SELECT o.*,
+            COALESCE(NULLIF(o.rider_earning, 0), o.delivery_fee, 0) AS rider_earning,
+            o.order_number, o.total_amount, o.created_at,
             a.recipient_name, a.contact_number, a.street_address,
             b.name as barangay_name,
             u.full_name as buyer_name,

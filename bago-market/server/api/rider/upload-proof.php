@@ -41,8 +41,9 @@ if ($imageData === false) {
     exit;
 }
 
-// Save file
-$uploadDir = $_SERVER['DOCUMENT_ROOT'] . '/server/uploads/proofs/';
+// Save file — use __DIR__ to reliably locate uploads relative to this file
+// __DIR__ = .../server/api/rider  →  go up 2 to get server/
+$uploadDir = realpath(__DIR__ . '/../../') . '/uploads/proofs/';
 if (!is_dir($uploadDir)) {
     mkdir($uploadDir, 0755, true);
 }
