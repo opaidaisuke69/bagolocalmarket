@@ -7,8 +7,9 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowLeft, MapPin, Package, Truck, CreditCard, Info, Navigation,
+  Minus, Plus,
 } from 'lucide-react-native';
-import { ordersAPI, addressesAPI, productsAPI } from '../services/api';
+import { ordersAPI, addressesAPI, productsAPI, cartAPI } from '../services/api';
 import { IMAGE_BASE_URL } from '../constants/api';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../context/ToastContext';
@@ -23,12 +24,12 @@ function buildImageUrl(path: string | null | undefined): string | null {
 }
 
 export default function CheckoutScreen() {
-  const { itemIds, buyNow, productId, quantity } = useLocalSearchParams<{
-    itemIds?: string; buyNow?: string; productId?: string; quantity?: string;
+  const { itemIds, buyNow, productId, quantity, variationId, colorVariationId } = useLocalSearchParams<{
+    itemIds?: string; buyNow?: string; productId?: string; quantity?: string; variationId?: string; colorVariationId?: string;
   }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { items: cartItems, fetchCart } = useCart();
+  const { items: cartItems, fetchCart, updateQuantity } = useCart();
   const { showToast } = useToast();
 
   const [addresses,       setAddresses]       = useState<any[]>([]);
@@ -37,12 +38,18 @@ export default function CheckoutScreen() {
   const [placing,         setPlacing]         = useState(false);
   const [buyNowProduct,   setBuyNowProduct]   = useState<any>(null);
 
+  // Buy-now local quantity (separate from cart — no cart row to update)
+  const [buyNowQty, setBuyNowQty] = useState(1);
+
   // Delivery fee
   const [deliveryFee,  setDeliveryFee]  = useState<number | null>(null);
   const [feeLoading,   setFeeLoading]   = useState(false);
   const [feeBreakdown, setFeeBreakdown] = useState('');
   const [feeNote,      setFeeNote]      = useState('');
   const [sellerFees,   setSellerFees]   = useState<any[]>([]);
+
+  // Per-item quantity update tracking
+  const [updatingQty, setUpdatingQty] = useState<Record<string, boolean>>({});
 
   // Track last fetched address+sellers to avoid duplicate calls
   const lastFeeKey = useRef('');
@@ -51,14 +58,14 @@ export default function CheckoutScreen() {
   const selectedItemIds = (itemIds || '').split(',').filter(Boolean);
 
   const checkoutItems = isBuyNow && buyNowProduct
-    ? [buyNowProduct]
+    ? [{ ...buyNowProduct, quantity: buyNowQty }]
     : cartItems.filter(i =>
         selectedItemIds.includes(String(i.id)) ||
         selectedItemIds.includes(String(i.product_id))
       );
 
   const subtotal = checkoutItems.reduce(
-    (sum, i) => sum + Number(i.price) * Number(i.quantity || quantity || 1), 0
+    (sum, i) => sum + Number(i.price) * Number(i.quantity), 0
   );
 
   // ── Fetch shipping fee ────────────────────────────────────────────────────
@@ -115,16 +122,47 @@ export default function CheckoutScreen() {
         if (isBuyNow && productId) {
           const pd = await productsAPI.detail(Number(productId));
           const p  = pd.product;
+          const initialQty = Number(quantity || 1);
+          setBuyNowQty(initialQty);
+
+          // If a specific variant was selected via Buy Now, use that variant's price/stock
+          let effectivePrice = Number(p.price);
+          let effectiveStock = Number(p.stock);
+          let variationLabel: string | null = null;
+          let chosenVariationId: number | null = variationId ? Number(variationId) : null;
+          let chosenColorVariationId: number | null = colorVariationId ? Number(colorVariationId) : null;
+
+          const labelParts: string[] = [];
+
+          if (chosenColorVariationId && p.variations?.length > 0) {
+            const cv = p.variations.find((pv: any) => Number(pv.id) === chosenColorVariationId);
+            if (cv) labelParts.push(`Color: ${cv.value}`);
+          }
+
+          if (chosenVariationId && p.variations?.length > 0) {
+            const v = p.variations.find((pv: any) => Number(pv.id) === chosenVariationId);
+            if (v) {
+              effectivePrice = Number(p.price) + Number(v.price_adjustment || 0);
+              effectiveStock = Number(v.stock);
+              labelParts.push(`${v.name}: ${v.value}`);
+            }
+          }
+
+          variationLabel = labelParts.length > 0 ? labelParts.join(' · ') : null;
+
           setBuyNowProduct({
-            id:            p.id,
-            product_id:    p.id,
-            product_name:  p.name,
-            product_image: p.images?.[0]?.image_url || p.primary_image,
-            price:         p.price,
-            quantity:      Number(quantity || 1),
-            stock:         p.stock,
-            store_name:    p.store_name,
-            seller_id:     p.seller_id,
+            id:                    p.id,
+            product_id:            p.id,
+            product_name:          p.name,
+            product_image:         p.images?.[0]?.image_url || p.primary_image,
+            price:                 effectivePrice,
+            quantity:              initialQty,
+            stock:                 effectiveStock,
+            store_name:            p.store_name,
+            seller_id:             p.seller_id,
+            variation_id:          chosenVariationId,
+            color_variation_id:    chosenColorVariationId,
+            variation_label:       variationLabel,
           });
         }
       } catch {}
@@ -132,6 +170,35 @@ export default function CheckoutScreen() {
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Change item quantity ─────────────────────────────────────────────────
+  // Buy-now: updates local buyNowQty state only (no cart row exists)
+  // Cart:    calls cartAPI directly + fetchCart so UI is guaranteed to sync
+  const changeQty = async (item: any, delta: number) => {
+    const currentQty = isBuyNow ? buyNowQty : Number(item.quantity);
+    const newQty     = currentQty + delta;
+    const maxStock   = Number(item.stock ?? 0);
+    if (newQty < 1) return;
+    if (maxStock > 0 && newQty > maxStock) return;
+
+    if (isBuyNow) {
+      // Buy-now: just update local state
+      setBuyNowQty(newQty);
+      return;
+    }
+
+    // Cart mode: update via API then re-sync context
+    const key = String(item.id);
+    setUpdatingQty(prev => ({ ...prev, [key]: true }));
+    try {
+      await cartAPI.update({ item_id: Number(item.id), quantity: newQty });
+      await fetchCart(); // re-sync context so checkoutItems qty updates
+    } catch {
+      showToast('Failed to update quantity', 'error');
+    } finally {
+      setUpdatingQty(prev => ({ ...prev, [key]: false }));
+    }
+  };
 
   // ── Place order ───────────────────────────────────────────────────────────
   const handlePlaceOrder = async () => {
@@ -143,8 +210,10 @@ export default function CheckoutScreen() {
       await ordersAPI.create({
         address_id:   selectedAddress.id,
         items:        checkoutItems.map(item => ({
-          product_id: Number(item.product_id || item.id),
-          quantity:   Number(item.quantity || 1),
+          product_id:          Number(item.product_id || item.id),
+          quantity:            Number(item.quantity || 1),
+          variation_id:        item.variation_id       ?? null,
+          color_variation_id:  item.color_variation_id ?? null,
         })),
         shipping_fee: deliveryFee ?? 25,
       });
@@ -280,27 +349,97 @@ export default function CheckoutScreen() {
               Order Items ({checkoutItems.length})
             </Text>
           </View>
+
           {checkoutItems.map((item) => {
-            const uri = buildImageUrl(item.product_image);
+            const uri        = buildImageUrl(item.product_image);
+            const qty        = isBuyNow ? buyNowQty : Number(item.quantity || 1);
+            const maxStock   = Number(item.stock ?? 0);
+            const isUpdating = !isBuyNow && !!updatingQty[String(item.id)];
+            const canDec     = !isUpdating && qty > 1;
+            const canInc     = !isUpdating && (maxStock === 0 || qty < maxStock);
+
             return (
-              <View key={`${item.id}-${item.product_id}`} style={{ flexDirection: 'row', gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#f9fafb' }}>
-                <View style={{ width: 56, height: 56, borderRadius: 8, backgroundColor: '#f3f4f6', overflow: 'hidden' }}>
-                  {uri ? (
-                    <Image source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-                  ) : (
-                    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                      <Package size={18} color={COLORS.gray[300]} />
-                    </View>
-                  )}
+              <View
+                key={`${item.id}-${item.product_id}`}
+                style={{ flexDirection: 'row', gap: 12, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6' }}
+              >
+                {/* Thumbnail */}
+                <View style={{ width: 60, height: 60, borderRadius: 8, backgroundColor: '#f3f4f6', overflow: 'hidden', flexShrink: 0 }}>
+                  {uri
+                    ? <Image source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                    : <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Package size={20} color={COLORS.gray[300]} /></View>
+                  }
                 </View>
+
+                {/* Info + stepper */}
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 12, color: COLORS.gray[900] }} numberOfLines={2}>{item.product_name}</Text>
-                  <Text style={{ fontSize: 11, color: COLORS.gray[400], marginTop: 2 }}>
-                    {item.store_name ? `${item.store_name} · ` : ''}x{item.quantity}
+                  <Text style={{ fontSize: 12, color: COLORS.gray[900], lineHeight: 16 }} numberOfLines={2}>
+                    {item.product_name}
                   </Text>
+                  {item.store_name
+                    ? <Text style={{ fontSize: 10, color: COLORS.gray[400], marginTop: 2 }}>{item.store_name}</Text>
+                    : null
+                  }
+                  {item.variation_label
+                    ? <Text style={{ fontSize: 10, color: COLORS.primary[700], fontWeight: '600', marginTop: 2 }}>{item.variation_label}</Text>
+                    : null
+                  }
+
+                  {/* ── Stepper (all modes) ── */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                    {/* − */}
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={() => changeQty(item, -1)}
+                      disabled={!canDec}
+                      style={{
+                        width: 34, height: 34,
+                        borderWidth: 1.5,
+                        borderColor: canDec ? COLORS.primary[800] : COLORS.gray[200],
+                        borderRadius: 8,
+                        alignItems: 'center', justifyContent: 'center',
+                        backgroundColor: canDec ? COLORS.primary[50] : '#f9fafb',
+                      }}
+                    >
+                      <Minus size={15} color={canDec ? COLORS.primary[800] : COLORS.gray[300]} />
+                    </TouchableOpacity>
+
+                    {/* Count */}
+                    <View style={{ width: 42, height: 34, alignItems: 'center', justifyContent: 'center' }}>
+                      {isUpdating
+                        ? <ActivityIndicator size="small" color={COLORS.primary[800]} />
+                        : <Text style={{ fontSize: 15, fontWeight: '800', color: COLORS.gray[900] }}>{qty}</Text>
+                      }
+                    </View>
+
+                    {/* + */}
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={() => changeQty(item, 1)}
+                      disabled={!canInc}
+                      style={{
+                        width: 34, height: 34,
+                        borderWidth: 1.5,
+                        borderColor: canInc ? COLORS.primary[800] : COLORS.gray[200],
+                        borderRadius: 8,
+                        alignItems: 'center', justifyContent: 'center',
+                        backgroundColor: canInc ? COLORS.primary[50] : '#f9fafb',
+                      }}
+                    >
+                      <Plus size={15} color={canInc ? COLORS.primary[800] : COLORS.gray[300]} />
+                    </TouchableOpacity>
+
+                    {maxStock > 0 && (
+                      <Text style={{ fontSize: 10, color: COLORS.gray[400], marginLeft: 8 }}>
+                        {maxStock} avail.
+                      </Text>
+                    )}
+                  </View>
                 </View>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: COLORS.gray[900] }}>
-                  ₱{(Number(item.price) * Number(item.quantity)).toLocaleString()}
+
+                {/* Line total */}
+                <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.primary[800], alignSelf: 'center' }}>
+                  ₱{(Number(item.price) * qty).toLocaleString('en-PH')}
                 </Text>
               </View>
             );
@@ -353,7 +492,7 @@ export default function CheckoutScreen() {
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, backgroundColor: '#eff6ff', borderRadius: 7, padding: 8 }}>
                     <MapPin size={11} color={COLORS.primary[800]} />
                     <Text style={{ fontSize: 11, color: COLORS.primary[800], flex: 1 }}>
-                      {sellerFees[0].seller_barangay} → {selectedAddress?.barangay_name || 'your location'} · {sellerFees[0].distance_km} km
+                      {sellerFees[0].store_name || sellerFees[0].seller_barangay} → {selectedAddress?.barangay_name || 'your location'} · {sellerFees[0].distance_km} km
                       {sellerFees[0].method === 'gps' ? ' (GPS)' : ' (estimated)'}
                     </Text>
                   </View>
@@ -363,16 +502,25 @@ export default function CheckoutScreen() {
                 {sellerFees.length > 1 && (
                   <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: '#e5e7eb', paddingTop: 8 }}>
                     <Text style={{ fontSize: 10, fontWeight: '700', color: COLORS.gray[500], marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      Route breakdown (fee = furthest seller)
+                      Per-shop breakdown (fees are summed)
                     </Text>
                     {sellerFees.map((s: any, i: number) => (
-                      <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 3 }}>
-                        <Text style={{ fontSize: 11, color: COLORS.gray[600], flex: 1 }}>
-                          {s.seller_barangay} · {s.distance_km} km{s.method === 'gps' ? ' 📍' : ''}
-                        </Text>
-                        <Text style={{ fontSize: 11, color: COLORS.gray[700], fontWeight: '600' }}>₱{s.fee}</Text>
+                      <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 11, fontWeight: '600', color: COLORS.gray[700] }}>
+                            {s.store_name || 'Shop'}{s.method === 'gps' ? ' 📍' : ''}
+                          </Text>
+                          <Text style={{ fontSize: 10, color: COLORS.gray[400] }}>
+                            {s.seller_barangay} · {s.distance_km} km
+                          </Text>
+                        </View>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: COLORS.primary[800] }}>₱{s.fee}</Text>
                       </View>
                     ))}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: COLORS.gray[600] }}>Total Shipping</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: COLORS.primary[800] }}>₱{effectiveFee.toFixed(0)}</Text>
+                    </View>
                   </View>
                 )}
 

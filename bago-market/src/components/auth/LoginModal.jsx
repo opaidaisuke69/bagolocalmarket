@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Eye, EyeOff, X, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, X, Loader2, Smartphone } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useAuthModal } from '../../context/AuthModalContext';
@@ -10,6 +10,7 @@ export default function LoginModal() {
   const [form, setForm] = useState({ email: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [riderError, setRiderError] = useState(false);
   const { login } = useAuth();
   const { showLogin, closeAll, openRegister } = useAuthModal();
   const { showToast } = useToast();
@@ -18,6 +19,7 @@ export default function LoginModal() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setRiderError(false);
     if (!form.email || !form.password) {
       showToast('Please fill in all fields.', 'warning');
       return;
@@ -28,16 +30,20 @@ export default function LoginModal() {
       showToast('Login successful!', 'success');
       closeAll();
       setForm({ email: '', password: '' });
-      // Use React Router navigation — no full reload
       if (user.role === 'seller') {
         window.__navigateTo = '/seller';
       } else if (user.role === 'admin') {
         window.__navigateTo = '/admin';
       }
-      // Dispatch a custom event so the router can handle it
       window.dispatchEvent(new CustomEvent('app:navigate', { detail: { role: user.role } }));
     } catch (err) {
-      showToast(err.response?.data?.message || 'Login failed.', 'error');
+      const data = err.response?.data;
+      // Server explicitly flags this as a rider account
+      if (data?.rider_redirect) {
+        setRiderError(true);
+      } else {
+        showToast(data?.message || 'Login failed.', 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -48,7 +54,7 @@ export default function LoginModal() {
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeAll} />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-[420px] overflow-hidden">
         {/* Close button */}
-        <button onClick={closeAll} className="absolute top-4 right-4 p-1.5 hover:bg-gray-100 rounded-full z-10 transition-colors">
+        <button onClick={() => { closeAll(); setRiderError(false); setForm({ email: '', password: '' }); }} className="absolute top-4 right-4 p-1.5 hover:bg-gray-100 rounded-full z-10 transition-colors">
           <X size={18} className="text-gray-400" />
         </button>
 
@@ -58,20 +64,35 @@ export default function LoginModal() {
             <div className="absolute top-0 right-0 w-32 h-32 bg-accent-400 rounded-full -translate-y-1/2 translate-x-1/2" />
           </div>
           <div className="relative">
-            <img src={logoImg} alt="Bago Market" className="h-12 w-auto mx-auto mb-3" />
+            <img src={logoImg} alt="Bago Shop Express" className="h-12 w-auto mx-auto mb-3" />
             <h2 className="text-xl font-bold text-white">Welcome Back!</h2>
-            <p className="text-white/60 text-sm mt-1">Log in to your Bago City Marketplace account</p>
+            <p className="text-white/60 text-sm mt-1">Log in to your Bago Shop Express account</p>
           </div>
         </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="px-8 py-6 space-y-4">
+
+          {/* Rider account notice */}
+          {riderError && (
+            <div className="flex items-start gap-3 p-3.5 bg-blue-50 border border-blue-200 rounded-xl">
+              <Smartphone size={18} className="text-blue-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-blue-800">Rider account detected</p>
+                <p className="text-xs text-blue-600 mt-0.5 leading-relaxed">
+                  Rider accounts cannot log in here. Please use the{' '}
+                  <span className="font-bold">Bago Shop Riders App</span> on your mobile device to access your account.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Email Address</label>
             <input
               type="email"
               value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              onChange={(e) => { setForm({ ...form, email: e.target.value }); setRiderError(false); }}
               placeholder="your@email.com"
               className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-800 focus:border-transparent focus:bg-white outline-none text-sm transition-all"
             />

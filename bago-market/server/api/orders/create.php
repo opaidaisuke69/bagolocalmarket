@@ -2,6 +2,7 @@
 require_once '../config/cors.php';
 require_once '../config/database.php';
 require_once '../middleware/auth.php';
+require_once '../config/logger.php';
 
 $database = new Database();
 $db       = $database->getConnection();
@@ -23,9 +24,12 @@ foreach ([
         ADD COLUMN IF NOT EXISTS commission_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
         ADD COLUMN IF NOT EXISTS rider_earning     DECIMAL(10,2) NOT NULL DEFAULT 0.00",
     "ALTER TABLE order_items
-        ADD COLUMN IF NOT EXISTS item_subtotal     DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-        ADD COLUMN IF NOT EXISTS commission_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-        ADD COLUMN IF NOT EXISTS item_total        DECIMAL(10,2) NOT NULL DEFAULT 0.00",
+        ADD COLUMN IF NOT EXISTS item_subtotal        DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+        ADD COLUMN IF NOT EXISTS commission_amount    DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+        ADD COLUMN IF NOT EXISTS item_total           DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+        ADD COLUMN IF NOT EXISTS color_variation_id   INT           NULL",
+    "ALTER TABLE cart_items
+        ADD COLUMN IF NOT EXISTS color_variation_id   INT           NULL",
     "INSERT IGNORE INTO barangays (name) VALUES ('Bacong-Montilla')",
     "CREATE TABLE IF NOT EXISTS barangay_distances (
         id               INT AUTO_INCREMENT PRIMARY KEY,
@@ -52,7 +56,7 @@ function haversineKm(float $lat1, float $lon1, float $lat2, float $lon2): float 
 
 // ── Fee formula: ₱25 min (0–5 km), ₱5/km beyond 5 km ────────────────────────
 function calcShippingFee($km) {
-    $km  = max(0.0, (float)$km);
+    $km = max(0.0, (float)$km);
     return (float) ceil(max(25.0, $km * 5.0));
 }
 
@@ -72,25 +76,19 @@ if ($stmt->rowCount() === 0) {
     exit;
 }
 
-$address      = $stmt->fetch(PDO::FETCH_ASSOC);
-$buyerBrgyId  = (int)$address['barangay_id'];
+$address     = $stmt->fetch(PDO::FETCH_ASSOC);
+$buyerBrgyId = (int)$address['barangay_id'];
+$buyerLat    = isset($address['latitude'])  && $address['latitude']  !== null ? (float)$address['latitude']  : null;
+$buyerLon    = isset($address['longitude']) && $address['longitude'] !== null ? (float)$address['longitude'] : null;
 
-define('COMMISSION_RATE', 0.00); // platform fee disabled
+define('COMMISSION_RATE', 0.02); // 2% platform fee — deducted from seller payout, NOT added to buyer total
 
 try {
     $db->beginTransaction();
 
-    $orderNumber     = 'BGO-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
-    $sellerSubtotal  = 0.00;
-    $totalCommission = 0.00;
-    $orderItems      = [];
-    $maxDistanceKm   = 0.0;
+    // ── Step 1: validate all items and group by seller ────────────────────────
+    $sellerGroups = []; // seller_id → [ items... ]
 
-    // Buyer GPS coordinates (from address)
-    $buyerLat = isset($address['latitude'])  && $address['latitude']  !== null ? (float)$address['latitude']  : null;
-    $buyerLon = isset($address['longitude']) && $address['longitude'] !== null ? (float)$address['longitude'] : null;
-
-    // ── Validate items, calculate per-item commission, track seller GPS ────────
     foreach ($data->items as $item) {
         $stmt = $db->prepare(
             "SELECT p.id, p.name, p.price, p.stock, p.seller_id,
@@ -111,19 +109,41 @@ try {
 
         $product = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if ($product['stock'] < $item->quantity) {
+        $qty       = (int)$item->quantity;
+        $unitPrice = (float)$product['price'];
+        $varId        = isset($item->variation_id)       && $item->variation_id       ? (int)$item->variation_id       : null;
+        $colorVarId   = isset($item->color_variation_id) && $item->color_variation_id ? (int)$item->color_variation_id : null;
+
+        // If a variation was specified, validate its stock and use its effective price
+        if ($varId !== null) {
+            $vstmt = $db->prepare(
+                "SELECT id, stock, price_adjustment FROM product_variations WHERE id = ? AND product_id = ?"
+            );
+            $vstmt->execute([$varId, $product['id']]);
+            if ($vstmt->rowCount() === 0) {
+                throw new Exception("Invalid variant for product: " . $product['name']);
+            }
+            $variation  = $vstmt->fetch(PDO::FETCH_ASSOC);
+            $availStock = (int)$variation['stock'];
+            $unitPrice  = round($unitPrice + (float)$variation['price_adjustment'], 2);
+        } else {
+            $availStock = (int)$product['stock'];
+        }
+
+        if ($availStock < $qty) {
             throw new Exception("Insufficient stock for: " . $product['name']);
         }
 
-        // Distance: GPS pin-to-pin (Haversine) — fallback to 0 km if no GPS
+        $sellerId  = (int)$product['seller_id'];
+
+        // Per-seller distance
         $sellerLat = isset($product['seller_lat'])  && $product['seller_lat']  !== null ? (float)$product['seller_lat']  : null;
         $sellerLon = isset($product['seller_lon'])  && $product['seller_lon']  !== null ? (float)$product['seller_lon']  : null;
+        $km        = 0.0;
 
         if ($sellerLat !== null && $sellerLon !== null && $buyerLat !== null && $buyerLon !== null) {
             $km = haversineKm($sellerLat, $sellerLon, $buyerLat, $buyerLon);
-            if ($km > $maxDistanceKm) $maxDistanceKm = $km;
         } else {
-            // No GPS on one side — use barangay_distances as fallback
             $sellerBrgyId = (int)$product['seller_barangay_id'];
             if ($sellerBrgyId > 0 && $sellerBrgyId !== $buyerBrgyId) {
                 $dStmt = $db->prepare(
@@ -133,128 +153,179 @@ try {
                 $dStmt->execute([$sellerBrgyId, $buyerBrgyId]);
                 $dRow = $dStmt->fetch(PDO::FETCH_ASSOC);
                 $km   = $dRow ? (float)$dRow['distance_km'] : 0.0;
-                if ($km > $maxDistanceKm) $maxDistanceKm = $km;
             }
         }
 
-        $qty       = (int)$item->quantity;
-        $unitPrice = (float)$product['price'];
+        if (!isset($sellerGroups[$sellerId])) {
+            $sellerGroups[$sellerId] = [
+                'items'      => [],
+                'distanceKm' => 0.0,
+            ];
+        }
+
+        // Track max distance per seller
+        if ($km > $sellerGroups[$sellerId]['distanceKm']) {
+            $sellerGroups[$sellerId]['distanceKm'] = $km;
+        }
+
         $lineSubtotal = round($unitPrice * $qty, 2);
-
-        $sellerSubtotal += $lineSubtotal;
-
-        $orderItems[] = [
-            'product_id'   => $product['id'],
-            'seller_id'    => $product['seller_id'],
-            'quantity'     => $qty,
-            'price'        => $unitPrice,
-            'variation_id' => $item->variation_id ?? null,
-            'item_subtotal' => $lineSubtotal,
+        $sellerGroups[$sellerId]['items'][] = [
+            'product_id'       => $product['id'],
+            'seller_id'        => $sellerId,
+            'quantity'         => $qty,
+            'price'            => $unitPrice,
+            'variation_id'     => $varId,
+            'color_variation_id' => $colorVarId,
+            'item_subtotal'    => $lineSubtotal,
         ];
     }
 
-    // ── Commission on total subtotal (matches checkout UI calculation) ────────
-    $subtotal        = round($sellerSubtotal, 2);
-    $totalCommission = round($subtotal * COMMISSION_RATE * 100) / 100;
+    // ── Step 2: create one order per seller ───────────────────────────────────
+    $createdOrders  = [];
+    $grandTotal     = 0.0;
+    $allProductIds  = [];
+    $dateSuffix     = date('Ymd');
 
-    // Back-fill per-item commission proportionally so item_total adds up correctly
-    foreach ($orderItems as &$oi) {
-        $oi['commission_amount'] = round($oi['item_subtotal'] * COMMISSION_RATE, 4);
-        $oi['item_total']        = round($oi['item_subtotal'] + $oi['commission_amount'], 2);
-    }
-    unset($oi);
+    foreach ($sellerGroups as $sellerId => $group) {
+        $orderItems  = $group['items'];
+        $distanceKm  = $group['distanceKm'];
 
-    // ── Compute shipping fee from max distance ────────────────────────────────
-    $shippingFee = calcShippingFee($maxDistanceKm);
-    $totalAmount = round($subtotal + $totalCommission + $shippingFee, 2);
+        // Subtotal for this seller's items
+        $subtotal        = round(array_sum(array_column($orderItems, 'item_subtotal')), 2);
+        $totalCommission = round($subtotal * COMMISSION_RATE, 2);        // platform's 2% cut
+        $sellerPayout    = round($subtotal - $totalCommission, 2);       // what seller actually receives
+        $shippingFee     = calcShippingFee($distanceKm);
+        // Buyer pays: product price + shipping only — commission is a deduction from seller, not a markup
+        $totalAmount     = round($subtotal + $shippingFee, 2);
+        $grandTotal     += $totalAmount;
 
-    // ── Insert order ──────────────────────────────────────────────────────────
-    $stmt = $db->prepare(
-        "INSERT INTO orders
-            (order_number, buyer_id, address_id,
-             subtotal, delivery_fee, total_amount,
-             commission_rate, commission_amount, rider_earning,
-             payment_method, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'cod', 'pending')"
-    );
-    $stmt->execute([
-        $orderNumber,
-        $payload['user_id'],
-        $data->address_id,
-        $subtotal,
-        $shippingFee,
-        $totalAmount,
-        COMMISSION_RATE,
-        round($totalCommission, 2),
-        $shippingFee,
-    ]);
-    $orderId = $db->lastInsertId();
+        // Back-fill per-item commission (deduction from seller, transparent to buyer)
+        foreach ($orderItems as &$oi) {
+            $oi['commission_amount'] = round($oi['item_subtotal'] * COMMISSION_RATE, 4);
+            $oi['item_total']        = $oi['item_subtotal']; // buyer-facing item total unchanged
+        }
+        unset($oi);
 
-    // ── Insert order items ────────────────────────────────────────────────────
-    foreach ($orderItems as $oi) {
+        // Unique order number per seller sub-order
+        $orderNumber = 'BGO-' . $dateSuffix . '-' . strtoupper(substr(uniqid(), -6));
+
         $stmt = $db->prepare(
-            "INSERT INTO order_items
-                (order_id, product_id, seller_id, quantity, price,
-                 variation_id, item_subtotal, commission_amount, item_total)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO orders
+                (order_number, buyer_id, address_id,
+                 subtotal, delivery_fee, total_amount,
+                 commission_rate, commission_amount, rider_earning,
+                 payment_method, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'cod', 'pending')"
         );
         $stmt->execute([
-            $orderId,
-            $oi['product_id'],
-            $oi['seller_id'],
-            $oi['quantity'],
-            $oi['price'],
-            $oi['variation_id'],
-            $oi['item_subtotal'],
-            $oi['commission_amount'],
-            $oi['item_total'],
+            $orderNumber,
+            $payload['user_id'],
+            $data->address_id,
+            $subtotal,
+            $shippingFee,
+            $totalAmount,
+            COMMISSION_RATE,
+            $totalCommission,
+            $shippingFee,   // rider earns the shipping fee
         ]);
+        $orderId = $db->lastInsertId();
 
-        $stmt = $db->prepare("UPDATE products SET stock = stock - ?, sold_count = sold_count + ? WHERE id = ?");
-        $stmt->execute([$oi['quantity'], $oi['quantity'], $oi['product_id']]);
+        // Insert items
+        foreach ($orderItems as $oi) {
+            $stmt = $db->prepare(
+                "INSERT INTO order_items
+                    (order_id, product_id, seller_id, quantity, price,
+                     variation_id, color_variation_id, item_subtotal, commission_amount, item_total)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            );
+            $stmt->execute([
+                $orderId,
+                $oi['product_id'],
+                $oi['seller_id'],
+                $oi['quantity'],
+                $oi['price'],
+                $oi['variation_id'],
+                $oi['color_variation_id'] ?? null,
+                $oi['item_subtotal'],
+                $oi['commission_amount'],
+                $oi['item_total'],
+            ]);
 
-        $stmt = $db->prepare("INSERT INTO product_interactions (user_id, product_id, interaction_type) VALUES (?, ?, 'purchase')");
-        $stmt->execute([$payload['user_id'], $oi['product_id']]);
+            // Deduct stock on purchase; sold_count incremented on delivery
+            if ($oi['variation_id'] !== null) {
+                // Deduct from the specific variant's stock
+                $stmt = $db->prepare("UPDATE product_variations SET stock = stock - ? WHERE id = ?");
+                $stmt->execute([$oi['quantity'], $oi['variation_id']]);
+                // Also keep the base product stock in sync (sum of all variant stocks)
+                $stmt = $db->prepare(
+                    "UPDATE products SET stock = (SELECT COALESCE(SUM(stock),0) FROM product_variations WHERE product_id = ?) WHERE id = ?"
+                );
+                $stmt->execute([$oi['product_id'], $oi['product_id']]);
+            } else {
+                $stmt = $db->prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
+                $stmt->execute([$oi['quantity'], $oi['product_id']]);
+            }
+
+            $stmt = $db->prepare("INSERT INTO product_interactions (user_id, product_id, interaction_type) VALUES (?, ?, 'purchase')");
+            $stmt->execute([$payload['user_id'], $oi['product_id']]);
+
+            $allProductIds[] = $oi['product_id'];
+        }
+
+        // Order status history
+        $stmt = $db->prepare("INSERT INTO order_status_history (order_id, status, changed_by) VALUES (?, 'pending', ?)");
+        $stmt->execute([$orderId, $payload['user_id']]);
+
+        // Delivery record
+        $stmt = $db->prepare("INSERT INTO deliveries (order_id, status) VALUES (?, 'preparing')");
+        $stmt->execute([$orderId]);
+
+        // Notify seller
+        $stmt = $db->prepare("INSERT INTO notifications (user_id, title, message, type) VALUES (?, 'New Order', ?, 'order')");
+        $stmt->execute([$sellerId, "You have a new order #$orderNumber"]);
+
+        $createdOrders[] = [
+            'order_id'          => $orderId,
+            'order_number'      => $orderNumber,
+            'subtotal'          => $subtotal,
+            'commission_amount' => $totalCommission,
+            'seller_payout'     => $sellerPayout,
+            'shipping_fee'      => $shippingFee,
+            'distance_km'       => round($distanceKm, 2),
+            'total_amount'      => $totalAmount,
+        ];
     }
 
-    $stmt = $db->prepare("INSERT INTO order_status_history (order_id, status, changed_by) VALUES (?, 'pending', ?)");
-    $stmt->execute([$orderId, $payload['user_id']]);
-
-    $stmt = $db->prepare("INSERT INTO deliveries (order_id, status) VALUES (?, 'preparing')");
-    $stmt->execute([$orderId]);
-
-    // ── Clear cart ────────────────────────────────────────────────────────────
+    // ── Step 3: clear purchased items from cart ───────────────────────────────
     $stmt = $db->prepare("SELECT id FROM carts WHERE user_id = ?");
     $stmt->execute([$payload['user_id']]);
     $cart = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if ($cart) {
-        $productIds   = array_column($orderItems, 'product_id');
-        $placeholders = implode(',', array_fill(0, count($productIds), '?'));
-        $stmt         = $db->prepare("DELETE FROM cart_items WHERE cart_id = ? AND product_id IN ($placeholders)");
-        $stmt->execute(array_merge([$cart['id']], $productIds));
-    }
-
-    // ── Notify sellers ────────────────────────────────────────────────────────
-    $sellerIds = array_unique(array_column($orderItems, 'seller_id'));
-    foreach ($sellerIds as $sellerId) {
-        $stmt = $db->prepare("INSERT INTO notifications (user_id, title, message, type) VALUES (?, 'New Order', ?, 'order')");
-        $stmt->execute([$sellerId, "You have a new order #$orderNumber"]);
+    if ($cart && !empty($allProductIds)) {
+        $placeholders = implode(',', array_fill(0, count($allProductIds), '?'));
+        $stmt = $db->prepare("DELETE FROM cart_items WHERE cart_id = ? AND product_id IN ($placeholders)");
+        $stmt->execute(array_merge([$cart['id']], $allProductIds));
     }
 
     $db->commit();
 
+    // Log one entry per created order
+    foreach ($createdOrders as $co) {
+        log_activity($db, $payload['user_id'], 'place_order', 'order', (int)$co['order_id'],
+            "Buyer placed order #{$co['order_number']} (₱" . number_format($co['total_amount'], 2) . ")");
+    }
+
     http_response_code(201);
     echo json_encode([
-        "message"           => "Order placed successfully.",
-        "order_id"          => $orderId,
-        "order_number"      => $orderNumber,
-        "subtotal"          => $subtotal,
-        "commission_amount" => round($totalCommission, 2),
-        "shipping_fee"      => $shippingFee,
-        "distance_km"       => round($maxDistanceKm, 2),
-        "total_amount"      => $totalAmount,
-        "barangay"          => $address['barangay_name'],
+        "message"        => count($createdOrders) > 1
+            ? count($createdOrders) . " orders placed successfully (one per store)."
+            : "Order placed successfully.",
+        "orders"         => $createdOrders,
+        // Backwards-compat: single-order clients still get order_id / order_number
+        "order_id"       => $createdOrders[0]['order_id'],
+        "order_number"   => $createdOrders[0]['order_number'],
+        "total_amount"   => round($grandTotal, 2),
+        "barangay"       => $address['barangay_name'],
     ]);
 
 } catch (Exception $e) {

@@ -12,7 +12,7 @@ export default function Index() {
       const token = await AsyncStorage.getItem('rider_token');
       // Small delay for splash feel
       await new Promise(r => setTimeout(r, 600));
-      if (token) router.replace('/dashboard');
+      if (token) router.replace('/(tabs)' as any);
       else router.replace('/login');
     };
     check();

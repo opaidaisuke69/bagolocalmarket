@@ -9,6 +9,9 @@ interface User {
   role: string;
   phone?: string;
   avatar?: string;
+  profile_image?: string;
+  contact_number?: string;
+  full_name?: string;
 }
 
 interface AuthContextType {
@@ -17,6 +20,8 @@ interface AuthContextType {
   login: (credentials: { email: string; password: string }) => Promise<User>;
   register: (data: any) => Promise<any>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
+  updateUser: (updates: Partial<User>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -33,12 +38,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       const data = await authAPI.me();
-      setUser(data.user);
-      await AsyncStorage.setItem('user', JSON.stringify(data.user));
+      // Clear session if a non-buyer somehow has a stored token
+      if (data.user?.role && data.user.role !== 'buyer') {
+        await AsyncStorage.removeItem('token');
+        await AsyncStorage.removeItem('user');
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+      // Normalise: API returns full_name, we also store it as name
+      const normalised = {
+        ...data.user,
+        name: data.user.full_name || data.user.name || '',
+      };
+      setUser(normalised);
+      await AsyncStorage.setItem('user', JSON.stringify(normalised));
     } catch {
       const saved = await AsyncStorage.getItem('user');
       if (saved) {
-        setUser(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        if (parsed?.role && parsed.role !== 'buyer') {
+          await AsyncStorage.removeItem('token');
+          await AsyncStorage.removeItem('user');
+          setUser(null);
+        } else {
+          setUser(parsed);
+        }
       } else {
         await AsyncStorage.removeItem('token');
         setUser(null);
@@ -54,6 +79,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (credentials: { email: string; password: string }) => {
     const data = await authAPI.login(credentials);
+    // Market app is for buyers only
+    if (data.user?.role && data.user.role !== 'buyer') {
+      throw new Error('This app is for buyers only. Please use the correct app for your account type.');
+    }
     await AsyncStorage.setItem('token', data.token);
     await AsyncStorage.setItem('user', JSON.stringify(data.user));
     setUser(data.user);
@@ -71,8 +100,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
+  const refreshUser = useCallback(async () => {
+    await fetchUser();
+  }, [fetchUser]);
+
+  const updateUser = useCallback(async (updates: Partial<User>) => {
+    setUser(prev => {
+      if (!prev) return prev;
+      const updated = { ...prev, ...updates };
+      AsyncStorage.setItem('user', JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

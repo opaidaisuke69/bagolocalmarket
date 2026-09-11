@@ -148,6 +148,11 @@ export default function CartScreen() {
                 <Text style={{ fontSize: 12, color: COLORS.gray[900], lineHeight: 16 }} numberOfLines={2}>
                   {cartItem.product_name}
                 </Text>
+                {cartItem.variation_label ? (
+                  <Text style={{ fontSize: 10, color: COLORS.primary[700], fontWeight: '600', marginTop: 2 }}>
+                    {cartItem.variation_label}
+                  </Text>
+                ) : null}
                 <Text style={{ fontSize: 14, fontWeight: '700', color: COLORS.primary[800], marginTop: 4 }}>
                   ₱{Number(cartItem.price).toLocaleString()}
                 </Text>

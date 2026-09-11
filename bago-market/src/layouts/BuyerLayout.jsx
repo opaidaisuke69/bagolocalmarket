@@ -1,8 +1,18 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
-import { Home, Search, ShoppingCart, Package, User, Heart, Menu, X, Bell, LogOut, Sparkles, Store } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Home, Search, ShoppingCart, Package, User, Heart, Menu, X, LogOut, Sparkles, Store } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
+import logoImg from '../assets/images/logo.png';
+
+/* Helper: resolve an image path from the server to a usable URL.
+   Vite proxy maps /uploads → XAMPP in dev. In prod it's same-origin.
+   No origin manipulation needed — just ensure a leading slash. */
+function resolveImg(path) {
+  if (!path) return null;
+  if (path.startsWith('http')) return path;
+  return path.startsWith('/') ? path : `/${path}`;
+}
 
 export default function BuyerLayout() {
   const { user, logout } = useAuth();
@@ -11,20 +21,43 @@ export default function BuyerLayout() {
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [searchValue, setSearchValue] = useState('');
+  const searchInputRef = useRef(null);
 
   const navLinks = [
-    { path: '/', icon: Home, label: 'Home' },
-    { path: '/marketplace', icon: Store, label: 'Marketplace' },
-    { path: '/recommendations', icon: Sparkles, label: 'For You' },
-    { path: '/orders', icon: Package, label: 'Orders' },
-    { path: '/wishlist', icon: Heart, label: 'Wishlist' },
+    { path: '/',               icon: Home,    label: 'Home'        },
+    { path: '/marketplace',    icon: Store,   label: 'Marketplace' },
+    { path: '/recommendations',icon: Sparkles,label: 'For You'     },
+    { path: '/orders',         icon: Package, label: 'Orders'      },
+    { path: '/wishlist',       icon: Heart,   label: 'Wishlist'    },
   ];
 
   const isActive = (path) => location.pathname === path;
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    navigate('/');
+  };
+
+  // Pre-fill search box with the current ?search= param when on the marketplace page
+  useEffect(() => {
+    if (location.pathname === '/marketplace') {
+      const params = new URLSearchParams(location.search);
+      setSearchValue(params.get('search') || '');
+    } else {
+      setSearchValue('');
+    }
+  }, [location.pathname, location.search]);
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    const q = searchValue.trim();
+    if (q) {
+      navigate(`/marketplace?search=${encodeURIComponent(q)}`);
+    } else {
+      navigate('/marketplace');
+    }
+    searchInputRef.current?.blur();
   };
 
   return (
@@ -34,19 +67,31 @@ export default function BuyerLayout() {
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
-            <Link to="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-accent-400 rounded-lg flex items-center justify-center">
-                <Store size={18} className="text-primary-900" />
-              </div>
-              <span className="font-bold text-lg hidden sm:block">Bago Market</span>
+            <Link to="/" className="flex items-center gap-2 shrink-0">
+              <img src={logoImg} alt="Bago Shop Express" className="h-9 w-auto" />
+              <span className="font-bold text-lg hidden sm:block">Bago Shop Express</span>
             </Link>
 
             {/* Search Bar - Desktop */}
             <div className="hidden md:flex flex-1 max-w-xl mx-8">
-              <Link to="/marketplace" className="flex-1 flex items-center bg-white/10 hover:bg-white/15 rounded-lg px-4 py-2 transition-colors">
-                <Search size={18} className="text-white/70 mr-2" />
-                <span className="text-white/70 text-sm">Search products...</span>
-              </Link>
+              <form onSubmit={handleSearchSubmit} className="flex w-full shadow-sm">
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchValue}
+                  onChange={e => setSearchValue(e.target.value)}
+                  placeholder="Search products..."
+                  aria-label="Search products"
+                  className="flex-1 px-4 py-2 rounded-l-xl bg-white/90 text-gray-900 text-sm outline-none border-0 focus:ring-2 focus:ring-accent-400 focus:ring-inset placeholder-gray-400 transition-all"
+                />
+                <button
+                  type="submit"
+                  aria-label="Submit search"
+                  className="px-4 bg-accent-400 hover:bg-accent-300 rounded-r-xl transition-colors flex items-center justify-center shrink-0"
+                >
+                  <Search size={16} className="text-primary-900" />
+                </button>
+              </form>
             </div>
 
             {/* Right Actions */}
@@ -60,18 +105,25 @@ export default function BuyerLayout() {
                 )}
               </Link>
 
-              <button className="relative p-2 hover:bg-white/10 rounded-lg transition-colors">
-                <Bell size={22} />
-              </button>
-
               {/* Profile dropdown */}
               <div className="relative">
                 <button
                   onClick={() => setProfileOpen(!profileOpen)}
                   className="flex items-center gap-2 p-1.5 hover:bg-white/10 rounded-lg transition-colors"
                 >
-                  <div className="w-8 h-8 bg-accent-400 rounded-full flex items-center justify-center">
-                    <User size={16} className="text-primary-900" />
+                  {/* Avatar: show profile photo if available, else initials */}
+                  <div className="w-8 h-8 rounded-full overflow-hidden bg-accent-400 flex items-center justify-center shrink-0">
+                    {resolveImg(user?.profile_image) ? (
+                      <img
+                        src={resolveImg(user.profile_image)}
+                        alt={user.full_name}
+                        className="w-full h-full object-cover"
+                        onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }}
+                      />
+                    ) : null}
+                    <span className={`text-primary-900 font-bold text-sm ${resolveImg(user?.profile_image) ? 'hidden' : 'flex'} items-center justify-center w-full h-full`}>
+                      {(user?.full_name || 'U').charAt(0).toUpperCase()}
+                    </span>
                   </div>
                   <span className="hidden lg:block text-sm font-medium truncate max-w-24">
                     {user?.full_name?.split(' ')[0]}
@@ -81,24 +133,54 @@ export default function BuyerLayout() {
                 {profileOpen && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setProfileOpen(false)} />
-                    <div className="absolute right-0 top-12 w-56 bg-white rounded-xl shadow-xl border z-50 py-2">
-                      <div className="px-4 py-2 border-b">
-                        <p className="font-medium text-gray-900 text-sm">{user?.full_name}</p>
-                        <p className="text-xs text-gray-500">{user?.email}</p>
+                    <div className="absolute right-0 top-12 w-60 bg-white rounded-xl shadow-2xl border border-gray-100 z-50 overflow-hidden">
+                      {/* User header */}
+                      <div className="px-4 py-3 bg-gradient-to-r from-primary-50 to-blue-50 border-b border-gray-100">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-10 h-10 rounded-full overflow-hidden bg-primary-800 flex items-center justify-center shrink-0">
+                            {resolveImg(user?.profile_image) ? (
+                              <img
+                                src={resolveImg(user.profile_image)}
+                                alt={user?.full_name}
+                                className="w-full h-full object-cover"
+                                onError={e => { e.currentTarget.style.display = 'none'; }}
+                              />
+                            ) : (
+                              <span className="text-white font-bold text-sm">
+                                {(user?.full_name || 'U').charAt(0).toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-gray-900 text-sm truncate">{user?.full_name}</p>
+                            <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+                            <span className="inline-block mt-0.5 text-[10px] font-bold uppercase tracking-wide text-primary-700 bg-primary-100 px-1.5 py-0.5 rounded-full">
+                              {user?.role}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <Link to="/profile" onClick={() => setProfileOpen(false)} className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
-                        <User size={16} /> Profile
-                      </Link>
-                      <Link to="/orders" onClick={() => setProfileOpen(false)} className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
-                        <Package size={16} /> My Orders
-                      </Link>
-                      <Link to="/wishlist" onClick={() => setProfileOpen(false)} className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
-                        <Heart size={16} /> Wishlist
-                      </Link>
-                      <hr className="my-1" />
-                      <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 w-full">
-                        <LogOut size={16} /> Logout
-                      </button>
+
+                      <div className="py-1">
+                        <Link to="/profile" onClick={() => setProfileOpen(false)} className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                          <User size={15} className="text-gray-400" /> My Profile
+                        </Link>
+                        <Link to="/orders" onClick={() => setProfileOpen(false)} className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                          <Package size={15} className="text-gray-400" /> My Orders
+                        </Link>
+                        <Link to="/wishlist" onClick={() => setProfileOpen(false)} className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                          <Heart size={15} className="text-gray-400" /> Wishlist
+                        </Link>
+                        <Link to="/recommendations" onClick={() => setProfileOpen(false)} className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                          <Sparkles size={15} className="text-gray-400" /> For You
+                        </Link>
+                      </div>
+
+                      <div className="border-t border-gray-100 py-1">
+                        <button onClick={handleLogout} className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 w-full transition-colors">
+                          <LogOut size={15} /> Log Out
+                        </button>
+                      </div>
                     </div>
                   </>
                 )}
@@ -113,9 +195,30 @@ export default function BuyerLayout() {
         </div>
       </header>
 
+      {/* Mobile Search Bar */}
+      <div className="md:hidden bg-primary-800 px-4 pb-3">
+        <form onSubmit={handleSearchSubmit} className="flex shadow-sm">
+          <input
+            type="text"
+            value={searchValue}
+            onChange={e => setSearchValue(e.target.value)}
+            placeholder="Search products..."
+            aria-label="Search products"
+            className="flex-1 px-4 py-2 rounded-l-xl bg-white/90 text-gray-900 text-sm outline-none border-0 focus:ring-2 focus:ring-accent-400 focus:ring-inset placeholder-gray-400 transition-all"
+          />
+          <button
+            type="submit"
+            aria-label="Submit search"
+            className="px-4 bg-accent-400 hover:bg-accent-300 rounded-r-xl transition-colors flex items-center justify-center shrink-0"
+          >
+            <Search size={16} className="text-primary-900" />
+          </button>
+        </form>
+      </div>
+
       {/* Mobile Menu */}
       {mobileMenuOpen && (
-        <div className="md:hidden bg-white border-b shadow-lg fixed top-16 inset-x-0 z-40">
+        <div className="md:hidden bg-white border-b shadow-lg fixed top-[108px] inset-x-0 z-40">
           <nav className="flex flex-col p-4 gap-1">
             {navLinks.map(link => (
               <Link
@@ -143,11 +246,11 @@ export default function BuyerLayout() {
       <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t shadow-lg z-40">
         <div className="flex items-center justify-around py-2">
           {[
-            { path: '/', icon: Home, label: 'Home' },
-            { path: '/marketplace', icon: Search, label: 'Search' },
-            { path: '/cart', icon: ShoppingCart, label: 'Cart', badge: cart.item_count },
-            { path: '/orders', icon: Package, label: 'Orders' },
-            { path: '/profile', icon: User, label: 'Profile' },
+            { path: '/',           icon: Home,         label: 'Home'    },
+            { path: '/marketplace',icon: Search,       label: 'Search'  },
+            { path: '/cart',       icon: ShoppingCart, label: 'Cart',  badge: cart.item_count },
+            { path: '/orders',     icon: Package,      label: 'Orders'  },
+            { path: '/profile',    icon: User,         label: 'Profile' },
           ].map(item => (
             <Link
               key={item.path}

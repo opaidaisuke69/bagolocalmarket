@@ -2,6 +2,7 @@
 require_once '../config/cors.php';
 require_once '../config/database.php';
 require_once '../middleware/auth.php';
+require_once '../config/logger.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -94,6 +95,8 @@ if ($method === 'GET') {
         // They were already deleted above, so notify based on what we can
         
         echo json_encode(["message" => "Rider approved and assigned!", "rider_id" => $rider_id]);
+        log_activity($db, $payload['user_id'], 'approve_pickup_request', 'order', $order_id,
+            "Seller approved pickup request #{$request_id} for order #{$request['order_number']} → rider #$rider_id");
         
     } elseif ($action === 'reject') {
         // Reject this specific rider
@@ -105,6 +108,8 @@ if ($method === 'GET') {
         $stmt->execute([$rider_id, "Your pickup request for order #{$request['order_number']} was not approved."]);
         
         echo json_encode(["message" => "Request rejected."]);
+        log_activity($db, $payload['user_id'], 'reject_pickup_request', 'order', $order_id,
+            "Seller rejected pickup request #{$request_id} for order #{$request['order_number']} (rider #$rider_id)");
         
     } else {
         http_response_code(400);

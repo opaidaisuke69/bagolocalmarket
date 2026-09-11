@@ -9,6 +9,7 @@
 require_once '../config/cors.php';
 require_once '../config/database.php';
 require_once '../middleware/auth.php';
+require_once '../config/logger.php';
 
 $database = new Database();
 $db       = $database->getConnection();
@@ -98,12 +99,59 @@ if ($method === 'GET') {
     );
     $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC);
 
+    // ── Per-remittance seller distributions ───────────────────────────────────
+    // Join through rider_remittance_orders (junction table) so only the exact orders
+    // snapshotted into this remittance are counted — not all orders in the date range.
+    foreach ($remittances as &$rem) {
+        $distStmt = $db->prepare(
+            "SELECT
+                sp.store_name,
+                sp.user_id AS seller_id,
+                COUNT(DISTINCT o.id)               AS order_count,
+                COALESCE(SUM(oi.item_subtotal), 0) AS seller_subtotal,
+                COALESCE(SUM(oi.item_total),    0) AS seller_total
+             FROM rider_remittance_orders rro
+             JOIN orders o       ON o.id  = rro.order_id
+             JOIN order_items oi ON oi.order_id = o.id
+             LEFT JOIN seller_profiles sp ON sp.user_id = oi.seller_id
+             WHERE rro.remittance_id = ?
+             GROUP BY oi.seller_id, sp.store_name
+             ORDER BY seller_subtotal DESC"
+        );
+        $distStmt->execute([$rem['id']]);
+        $rem['seller_distributions'] = $distStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+    unset($rem);
+
+    // ── Overall seller distribution (across all remittances in current filter) ─
+    $overallParams = $params; // same status filter
+    $overallWhere  = str_replace('r.status', 'rr.status', $where); // alias for sub-query
+    $overallStmt   = $db->prepare(
+        "SELECT
+            sp.store_name,
+            sp.user_id AS seller_id,
+            COUNT(DISTINCT o.id)               AS order_count,
+            COALESCE(SUM(oi.item_subtotal), 0) AS seller_subtotal,
+            COALESCE(SUM(oi.item_total),    0) AS seller_total
+         FROM rider_remittances rr
+         JOIN rider_remittance_orders rro ON rro.remittance_id = rr.id
+         JOIN orders o       ON o.id  = rro.order_id
+         JOIN order_items oi ON oi.order_id = o.id
+         LEFT JOIN seller_profiles sp ON sp.user_id = oi.seller_id
+         WHERE $overallWhere
+         GROUP BY oi.seller_id, sp.store_name
+         ORDER BY seller_subtotal DESC"
+    );
+    $overallStmt->execute($overallParams);
+    $overallDistributions = $overallStmt->fetchAll(PDO::FETCH_ASSOC);
+
     echo json_encode([
-        "remittances"  => $remittances,
-        "total"        => $total,
-        "total_pages"  => ceil($total / $limit),
-        "qr_codes"     => $qrCodes,
-        "summary"      => $summary,
+        "remittances"          => $remittances,
+        "total"                => $total,
+        "total_pages"          => ceil($total / $limit),
+        "qr_codes"             => $qrCodes,
+        "summary"              => $summary,
+        "overall_distributions"=> $overallDistributions,
     ]);
     exit;
 }
@@ -124,11 +172,14 @@ if ($method === 'POST') {
     if (!empty($data->id)) {
         $stmt = $db->prepare("UPDATE remittance_qr_codes SET label=?,type=?,account_name=?,account_number=?,qr_code_image=COALESCE(?,qr_code_image),is_active=? WHERE id=?");
         $stmt->execute([$data->label,$data->type??'gcash',$data->account_name,$data->account_number,$qrPath,$data->is_active??1,$data->id]);
+        log_activity($db, $payload['user_id'], 'update_qr_code', 'remittance', (int)$data->id, "Updated QR code: {$data->label}");
         echo json_encode(["message" => "QR code updated."]);
     } else {
         $stmt = $db->prepare("INSERT INTO remittance_qr_codes (label,type,account_name,account_number,qr_code_image,created_by) VALUES (?,?,?,?,?,?)");
         $stmt->execute([$data->label,$data->type??'gcash',$data->account_name,$data->account_number,$qrPath??'',$payload['user_id']]);
-        echo json_encode(["message" => "QR code added.", "id" => (int)$db->lastInsertId()]);
+        $newQrId = (int)$db->lastInsertId();
+        log_activity($db, $payload['user_id'], 'create_qr_code', 'remittance', $newQrId, "Added QR code: {$data->label} ({$data->type})");
+        echo json_encode(["message" => "QR code added.", "id" => $newQrId]);
     }
     exit;
 }
@@ -143,7 +194,6 @@ if ($method === 'PUT') {
     if ($data->action === 'verify') {
         $stmt = $db->prepare("UPDATE rider_remittances SET status='verified',verified_by=?,verified_at=NOW() WHERE id=?");
         $stmt->execute([$payload['user_id'], $data->remittance_id]);
-        // Notify rider
         $r = $db->prepare("SELECT rider_id, amount FROM rider_remittances WHERE id=?");
         $r->execute([$data->remittance_id]);
         $row = $r->fetch(PDO::FETCH_ASSOC);
@@ -151,6 +201,8 @@ if ($method === 'PUT') {
             $n = $db->prepare("INSERT INTO notifications (user_id,title,message,type) VALUES (?,'Remittance Verified',?,'remittance')");
             $n->execute([$row['rider_id'], "Your remittance of ₱".number_format($row['amount'],2)." has been verified."]);
         }
+        log_activity($db, $payload['user_id'], 'verify_remittance', 'remittance', (int)$data->remittance_id,
+            "Verified rider remittance #" . (int)$data->remittance_id . " (₱" . number_format($row['amount'] ?? 0, 2) . ")");
         echo json_encode(["message" => "Remittance verified."]);
     } elseif ($data->action === 'reject') {
         $reason = $data->reason ?? 'Does not match expected amount.';
@@ -163,6 +215,8 @@ if ($method === 'PUT') {
             $n = $db->prepare("INSERT INTO notifications (user_id,title,message,type) VALUES (?,'Remittance Rejected',?,'remittance')");
             $n->execute([$row['rider_id'], "Your remittance was rejected: $reason"]);
         }
+        log_activity($db, $payload['user_id'], 'reject_remittance', 'remittance', (int)$data->remittance_id,
+            "Rejected rider remittance #" . (int)$data->remittance_id . ". Reason: $reason");
         echo json_encode(["message" => "Remittance rejected."]);
     } else {
         http_response_code(400);
@@ -175,6 +229,7 @@ if ($method === 'DELETE') {
     $id = isset($_GET['qr_id']) ? (int)$_GET['qr_id'] : 0;
     if (!$id) { http_response_code(400); echo json_encode(["message" => "qr_id required."]); exit; }
     $db->prepare("DELETE FROM remittance_qr_codes WHERE id=?")->execute([$id]);
+    log_activity($db, $payload['user_id'], 'delete_qr_code', 'remittance', $id, "Deleted QR code #$id");
     echo json_encode(["message" => "QR code removed."]);
     exit;
 }

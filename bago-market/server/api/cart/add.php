@@ -16,6 +16,9 @@ if (empty($data->product_id)) {
     exit;
 }
 
+// Auto-add color_variation_id if it doesn't exist yet
+try { $db->exec("ALTER TABLE cart_items ADD COLUMN IF NOT EXISTS color_variation_id INT NULL"); } catch (Exception $e) {}
+
 $quantity = isset($data->quantity) ? (int)$data->quantity : 1;
 
 // Verify product exists and is available
@@ -36,7 +39,33 @@ if (!$product['is_available'] || $product['approval_status'] !== 'approved') {
     exit;
 }
 
-if ($product['stock'] < $quantity) {
+// If a variation is specified, validate it and use its stock instead
+$variationId = isset($data->variation_id) && $data->variation_id ? (int)$data->variation_id : null;
+$colorVariationId = isset($data->color_variation_id) && $data->color_variation_id ? (int)$data->color_variation_id : null;
+$availableStock = (int)$product['stock'];
+
+if ($variationId !== null) {
+    $stmt = $db->prepare("SELECT id, stock FROM product_variations WHERE id = ? AND product_id = ?");
+    $stmt->execute([$variationId, $data->product_id]);
+    if ($stmt->rowCount() === 0) {
+        http_response_code(400);
+        echo json_encode(["message" => "Invalid product variant."]);
+        exit;
+    }
+    $variation = $stmt->fetch(PDO::FETCH_ASSOC);
+    $availableStock = (int)$variation['stock'];
+}
+
+// Validate color variant if provided
+if ($colorVariationId !== null) {
+    $stmt = $db->prepare("SELECT id FROM product_variations WHERE id = ? AND product_id = ? AND name = 'Color'");
+    $stmt->execute([$colorVariationId, $data->product_id]);
+    if ($stmt->rowCount() === 0) {
+        $colorVariationId = null; // silently ignore invalid color variant
+    }
+}
+
+if ($availableStock < $quantity) {
     http_response_code(400);
     echo json_encode(["message" => "Insufficient stock."]);
     exit;
@@ -55,23 +84,22 @@ if ($stmt->rowCount() === 0) {
 }
 
 // Check if item already in cart
-$variationId = isset($data->variation_id) ? $data->variation_id : null;
 $stmt = $db->prepare("SELECT id, quantity FROM cart_items WHERE cart_id = ? AND product_id = ? AND (variation_id = ? OR (variation_id IS NULL AND ? IS NULL))");
 $stmt->execute([$cartId, $data->product_id, $variationId, $variationId]);
 
 if ($stmt->rowCount() > 0) {
     $item = $stmt->fetch(PDO::FETCH_ASSOC);
     $newQuantity = $item['quantity'] + $quantity;
-    if ($newQuantity > $product['stock']) {
+    if ($newQuantity > $availableStock) {
         http_response_code(400);
         echo json_encode(["message" => "Cannot add more than available stock."]);
         exit;
     }
-    $stmt = $db->prepare("UPDATE cart_items SET quantity = ? WHERE id = ?");
-    $stmt->execute([$newQuantity, $item['id']]);
+    $stmt = $db->prepare("UPDATE cart_items SET quantity = ?, color_variation_id = ? WHERE id = ?");
+    $stmt->execute([$newQuantity, $colorVariationId, $item['id']]);
 } else {
-    $stmt = $db->prepare("INSERT INTO cart_items (cart_id, product_id, quantity, variation_id) VALUES (?, ?, ?, ?)");
-    $stmt->execute([$cartId, $data->product_id, $quantity, $variationId]);
+    $stmt = $db->prepare("INSERT INTO cart_items (cart_id, product_id, quantity, variation_id, color_variation_id) VALUES (?, ?, ?, ?, ?)");
+    $stmt->execute([$cartId, $data->product_id, $quantity, $variationId, $colorVariationId]);
 }
 
 // Track interaction

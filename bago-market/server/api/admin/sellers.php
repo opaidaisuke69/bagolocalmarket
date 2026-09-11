@@ -56,6 +56,20 @@ if ($method === 'GET') {
     $stmt->execute($params);
     $sellers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Ensure seller_sample_products table exists
+    try {
+        $db->exec(
+            "CREATE TABLE IF NOT EXISTS seller_sample_products (
+                id         INT AUTO_INCREMENT PRIMARY KEY,
+                seller_id  INT NOT NULL,
+                image_path VARCHAR(500) NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (seller_id) REFERENCES seller_profiles(id) ON DELETE CASCADE,
+                INDEX idx_seller (seller_id)
+            )"
+        );
+    } catch (Exception $e) {}
+
     // Attach sample product images per seller
     foreach ($sellers as &$seller) {
         $seller['sample_products'] = [];
@@ -67,7 +81,7 @@ if ($method === 'GET') {
             );
             $spStmt->execute([$seller['id']]);
             $seller['sample_products'] = array_column($spStmt->fetchAll(PDO::FETCH_ASSOC), 'image_path');
-        } catch (Exception $e) { /* table may not exist */ }
+        } catch (Exception $e) { /* silent */ }
     }
 
     echo json_encode([

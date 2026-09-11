@@ -70,7 +70,7 @@ export default function DeliverScreen() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
-      Alert.alert('✓ Delivered', 'Order completed successfully!', [{ text: 'OK', onPress: () => router.replace('/dashboard') }]);
+      Alert.alert('✓ Delivered', 'Order completed successfully!', [{ text: 'OK', onPress: () => router.replace('/(tabs)' as any) }]);
     } catch (e: any) {
       Alert.alert('Error', e.message);
     } finally { setLoading(false); }

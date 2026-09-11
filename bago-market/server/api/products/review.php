@@ -2,6 +2,7 @@
 require_once '../config/cors.php';
 require_once '../config/database.php';
 require_once '../middleware/auth.php';
+require_once '../config/logger.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -106,3 +107,7 @@ echo json_encode([
     "avg_rating" => $avg_rating,
     "rating_count" => $rating_count
 ]);
+
+$reviewAction = ($_SERVER['REQUEST_METHOD'] === 'PUT' || $review_id) ? 'update_review' : 'submit_review';
+log_activity($db, $user_id, $reviewAction, 'product', $product_id,
+    ($reviewAction === 'submit_review' ? "Submitted" : "Updated") . " review for product #$product_id (rating: $rating/5)");

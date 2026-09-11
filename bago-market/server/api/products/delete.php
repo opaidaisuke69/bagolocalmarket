@@ -2,6 +2,7 @@
 require_once '../config/cors.php';
 require_once '../config/database.php';
 require_once '../middleware/auth.php';
+require_once '../config/logger.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -32,5 +33,8 @@ if ($stmt->rowCount() === 0) {
     echo json_encode(["message" => "Product not found."]);
     exit;
 }
+
+log_activity($db, $payload['user_id'], 'delete_product', 'product', (int)$data->id,
+    "Deleted product #" . (int)$data->id . " (by {$payload['role']})");
 
 echo json_encode(["message" => "Product deleted successfully."]);

@@ -136,9 +136,9 @@ export default function RegisterModal() {
             <div className="absolute bottom-0 left-0 w-32 h-32 bg-accent-400 rounded-full translate-y-1/2 -translate-x-1/2" />
           </div>
           <div className="relative">
-            <img src={logoImg} alt="Bago Market" className="h-10 w-auto mx-auto mb-2" />
+            <img src={logoImg} alt="Bago Shop Express" className="h-10 w-auto mx-auto mb-2" />
             <h2 className="text-lg font-bold text-white">Create Account</h2>
-            <p className="text-white/60 text-xs mt-1">Join Bago City Marketplace</p>
+            <p className="text-white/60 text-xs mt-1">Join Bago Shop Express</p>
           </div>
         </div>
 

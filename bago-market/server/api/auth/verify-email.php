@@ -1,6 +1,7 @@
 <?php
 require_once '../config/cors.php';
 require_once '../config/database.php';
+require_once '../config/logger.php';
 
 // database.php sets Asia/Manila + MySQL +08:00
 
@@ -87,6 +88,7 @@ try {
     $db->prepare("UPDATE users SET email_verified_at = NOW() WHERE id = ?")->execute([$row['user_id']]);
     $db->prepare("UPDATE email_verification_tokens SET used_at = NOW() WHERE id = ?")->execute([$row['id']]);
     $db->commit();
+    log_activity($db, $row['user_id'], 'verify_email', 'user', $row['user_id'], "Email verified for user #{$row['user_id']}");
     respond(200, 'Email verified successfully. You can now log in.', $wantsJson, 'success');
 } catch (Exception $e) {
     $db->rollBack();

@@ -2,6 +2,7 @@
 require_once '../config/cors.php';
 require_once '../config/database.php';
 require_once '../middleware/auth.php';
+require_once '../config/logger.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -104,6 +105,16 @@ try {
                 $stmt = $db->prepare("UPDATE seller_profiles SET total_sales = total_sales + ?, total_orders = total_orders + 1 WHERE user_id = ?");
                 $stmt->execute([$st['total'], $st['seller_id']]);
             }
+
+            // Update product sold_count based on delivered quantity (not purchase)
+            $stmt = $db->prepare("SELECT product_id, SUM(quantity) as qty FROM order_items WHERE order_id = ? GROUP BY product_id");
+            $stmt->execute([$data->order_id]);
+            $deliveredItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            foreach ($deliveredItems as $item) {
+                $stmt = $db->prepare("UPDATE products SET sold_count = sold_count + ? WHERE id = ?");
+                $stmt->execute([$item['qty'], $item['product_id']]);
+            }
         }
     }
 
@@ -126,6 +137,9 @@ try {
     $stmt->execute([$orderInfo['buyer_id'], "Order #{$orderInfo['order_number']} Update", $statusMessages[$data->status]]);
 
     $db->commit();
+
+    log_activity($db, $payload['user_id'], 'update_order_status', 'order', (int)$data->order_id,
+        "Order #{$orderInfo['order_number']} status → {$data->status}" . (!empty($data->notes) ? ". Notes: {$data->notes}" : ''));
 
     echo json_encode(["message" => "Order status updated successfully."]);
 } catch (Exception $e) {

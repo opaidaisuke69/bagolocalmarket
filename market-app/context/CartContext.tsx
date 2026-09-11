@@ -14,6 +14,11 @@ interface CartItem {
   store_name: string;
   seller_id?: number;
   seller_name?: string;
+  variation_id?: number | null;
+  color_variation_id?: number | null;
+  variation_label?: string | null;
+  color_image_url?: string | null;
+  color_hex?: string | null;
 }
 
 interface CartContextType {
@@ -22,7 +27,7 @@ interface CartContextType {
   total: number;
   loading: boolean;
   fetchCart: () => Promise<void>;
-  addToCart: (productId: number, quantity?: number) => Promise<void>;
+  addToCart: (productId: number, quantity?: number, variationId?: number | null, colorVariationId?: number | null) => Promise<void>;
   updateQuantity: (itemId: number, quantity: number) => Promise<void>;
   removeFromCart: (itemId: number) => Promise<void>;
 }
@@ -54,9 +59,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, [user, fetchCart]);
 
   // Optimistic add
-  const addToCart = async (productId: number, quantity: number = 1) => {
+  const addToCart = async (productId: number, quantity: number = 1, variationId: number | null = null, colorVariationId: number | null = null) => {
     try {
-      await cartAPI.add({ product_id: productId, quantity });
+      await cartAPI.add({ product_id: productId, quantity, variation_id: variationId, color_variation_id: colorVariationId });
       showToast('Added to cart', 'success');
       fetchCart(); // refresh in background
     } catch (err: any) {

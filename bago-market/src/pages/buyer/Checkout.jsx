@@ -1,15 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, Plus, Banknote, CheckCircle, Loader2 } from 'lucide-react';
+import { MapPin, Plus, Banknote, CheckCircle, Loader2, Minus, Store } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
 import { useToast } from '../../context/ToastContext';
-import { addressesAPI, ordersAPI, barangaysAPI } from '../../api/services';
+import { addressesAPI, ordersAPI, barangaysAPI, cartAPI } from '../../api/services';
 import Modal from '../../components/common/Modal';
 
-const COMMISSION_RATE = 0; // platform fee disabled
+const COMMISSION_RATE = 0.02; // 2% platform fee deducted from seller — NOT added to buyer total
 
 export default function Checkout() {
-  const { cart, fetchCart } = useCart();
+  const { cart, fetchCart, updateQuantity } = useCart();
   const { showToast } = useToast();
   const navigate = useNavigate();
 
@@ -24,6 +24,26 @@ export default function Checkout() {
   const [shippingFee, setShippingFee]       = useState(0);
   const [distanceZone, setDistanceZone]     = useState(null);
   const [feeLoading, setFeeLoading]         = useState(false);
+  const [sellerFees, setSellerFees]         = useState([]);   // per-seller breakdown
+  const [feeNote, setFeeNote]               = useState('');
+
+  // Per-item quantity update tracking (itemId → loading bool)
+  const [updatingQty, setUpdatingQty] = useState({});
+
+  const changeQty = async (item, delta) => {
+    const newQty = item.quantity + delta;
+    if (newQty < 1) return;                                      // floor at 1
+    const maxStock = Number(item.stock);
+    if (maxStock > 0 && newQty > maxStock) return;              // cap at stock
+    setUpdatingQty(prev => ({ ...prev, [item.id]: true }));
+    try {
+      await updateQuantity(item.id, newQty);                    // uses CartContext optimistic update
+    } catch {
+      showToast('Failed to update quantity.', 'error');
+    } finally {
+      setUpdatingQty(prev => ({ ...prev, [item.id]: false }));
+    }
+  };
 
   const [addressForm, setAddressForm] = useState({
     recipient_name: '', contact_number: '', barangay_id: '',
@@ -53,18 +73,20 @@ export default function Checkout() {
 
   // Fetch live shipping fee whenever address or cart items change
   const fetchShippingFee = useCallback(async (addressId) => {
-    if (!addressId) { setShippingFee(0); setDistanceZone(null); return; }
+    if (!addressId) { setShippingFee(0); setDistanceZone(null); setSellerFees([]); setFeeNote(''); return; }
     setFeeLoading(true);
     try {
-      // Pass unique seller IDs so the fee reflects the farthest seller → buyer distance
       const sellerIds = [...new Set(cart.items.map(i => i.seller_id).filter(Boolean))];
       const res = await ordersAPI.shippingFee(addressId, sellerIds);
       setShippingFee(res.data.shipping_fee);
       setDistanceZone(res.data.distance_km);
+      setSellerFees(res.data.sellers || []);
+      setFeeNote(res.data.note || '');
     } catch {
-      // Fallback to ₱25 minimum if endpoint fails
       setShippingFee(25);
       setDistanceZone(null);
+      setSellerFees([]);
+      setFeeNote('');
     } finally {
       setFeeLoading(false);
     }
@@ -76,6 +98,7 @@ export default function Checkout() {
 
   // ── Computed totals ─────────────────────────────────────────────────────────
   const sellerSubtotal = Number(cart.subtotal) || 0;
+  // Buyer total = product subtotal + shipping only (2% commission is deducted from seller, not added here)
   const total          = sellerSubtotal + shippingFee;
 
   // ── Handlers ────────────────────────────────────────────────────────────────
@@ -100,9 +123,10 @@ export default function Checkout() {
     setPlacing(true);
     try {
       const items = cart.items.map(item => ({
-        product_id: item.product_id,
-        quantity: item.quantity,
-        variation_id: item.variation_id || null,
+        product_id:         item.product_id,
+        quantity:           item.quantity,
+        variation_id:       item.variation_id       || null,
+        color_variation_id: item.color_variation_id || null,
       }));
       await ordersAPI.create({ address_id: selectedAddress, items });
       showToast('Order placed successfully!', 'success');
@@ -180,26 +204,75 @@ export default function Checkout() {
             </div>
           </div>
 
-          {/* Order Items */}
+          {/* Order Items — grouped by store */}
           <div className="bg-white rounded-xl border p-5">
             <h2 className="font-semibold text-gray-900 mb-4">Order Items ({cart.item_count})</h2>
-            <div className="divide-y">
-              {cart.items.map(item => {
-                const lineTotal = item.price * item.quantity;
-                return (
-                  <div key={item.id} className="flex items-center gap-3 py-3">
-                    <div className="w-12 h-12 bg-gray-100 rounded-lg overflow-hidden shrink-0">
-                      {item.product_image && <img src={item.product_image} alt="" className="w-full h-full object-cover" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-900 truncate">{item.product_name}</p>
-                      <p className="text-xs text-gray-500">x{item.quantity}</p>
-                    </div>
-                    <p className="text-sm font-medium">₱{lineTotal.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</p>
+            {/* Group items by seller */}
+            {(() => {
+              const groups = cart.items.reduce((acc, item) => {
+                const key = item.seller_id || 'unknown';
+                if (!acc[key]) acc[key] = { storeName: item.store_name || item.seller_name || 'Store', items: [] };
+                acc[key].items.push(item);
+                return acc;
+              }, {});
+              return Object.entries(groups).map(([sellerId, group]) => (
+                <div key={sellerId} className="mb-4 last:mb-0 border border-gray-100 rounded-xl overflow-hidden">
+                  {/* Store header */}
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                    <Store size={13} className="text-primary-800 shrink-0" />
+                    <span className="text-sm font-semibold text-gray-800">{group.storeName}</span>
                   </div>
-                );
-              })}
-            </div>
+                  <div className="divide-y divide-gray-50">
+                    {group.items.map(item => {
+                      const lineTotal  = item.price * item.quantity;
+                      const isUpdating = !!updatingQty[item.id];
+                      return (
+                        <div key={item.id} className="flex items-center gap-3 px-4 py-3">
+                          <div className="w-12 h-12 bg-gray-100 rounded-lg overflow-hidden shrink-0">
+                            {item.product_image && <img src={item.product_image} alt="" className="w-full h-full object-cover" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-900 truncate">{item.product_name}</p>
+                            {item.variation_label && (
+                              <p className="text-xs text-primary-700 font-medium mt-0.5">{item.variation_label}</p>
+                            )}
+                            {/* Quantity stepper */}
+                            <div className="flex items-center gap-1 mt-1.5">
+                              <button
+                                onClick={() => changeQty(item, -1)}
+                                disabled={isUpdating || item.quantity <= 1}
+                                className="w-6 h-6 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                              >
+                                <Minus size={11} />
+                              </button>
+                              <span className="w-7 text-center text-sm font-semibold">
+                                {isUpdating
+                                  ? <Loader2 size={11} className="animate-spin inline" />
+                                  : item.quantity
+                                }
+                              </span>
+                              <button
+                                onClick={() => changeQty(item, 1)}
+                                disabled={isUpdating || (Number(item.stock) > 0 && item.quantity >= Number(item.stock))}
+                                className="w-6 h-6 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                              >
+                                <Plus size={11} />
+                              </button>
+                              {Number(item.stock) > 0 && (
+                                <span className="text-[10px] text-gray-400 ml-1">{item.stock} avail.</span>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-sm font-medium shrink-0">
+                            ₱{lineTotal.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ));
+            })()}
           </div>
         </div>
 
@@ -210,13 +283,18 @@ export default function Checkout() {
 
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-500">Seller Subtotal</span>
+                <span className="text-gray-500">Subtotal</span>
                 <span>₱{sellerSubtotal.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">
                   Shipping Fee
-                  {distanceZone !== null && (
+                  {sellerFees.length > 1 && (
+                    <span className="ml-1 text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full font-medium">
+                      {sellerFees.length} shops
+                    </span>
+                  )}
+                  {sellerFees.length <= 1 && distanceZone !== null && (
                     <span className="ml-1 text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">
                       {distanceZone} km
                     </span>
@@ -225,14 +303,34 @@ export default function Checkout() {
                 <span>
                   {feeLoading
                     ? <Loader2 size={13} className="animate-spin inline" />
-                    : `₱${shippingFee.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`
+                    : `₱${Number(shippingFee).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`
                   }
                 </span>
               </div>
 
-              {selectedAddr && distanceZone !== null && (
+              {/* Per-seller fee breakdown (multi-shop) */}
+              {!feeLoading && sellerFees.length > 1 && (
+                <div className="ml-0 mt-1 space-y-1">
+                  {sellerFees.map((s, i) => (
+                    <div key={i} className="flex justify-between text-[11px] text-gray-400 pl-2 border-l-2 border-gray-100">
+                      <span>{s.store_name || 'Shop'} · {s.distance_km} km{s.method === 'gps' ? ' 📍' : ''}</span>
+                      <span>₱{Number(s.fee).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Single-shop distance note */}
+              {!feeLoading && sellerFees.length <= 1 && selectedAddr && distanceZone !== null && (
                 <p className="text-[11px] text-gray-400">
                   {selectedAddr.barangay_name} · ₱25 base + ₱5/km after 5 km
+                </p>
+              )}
+
+              {/* GPS issue note */}
+              {!feeLoading && feeNote && (
+                <p className="text-[11px] text-amber-600 bg-amber-50 px-2 py-1 rounded-md">
+                  ⚠ {feeNote}
                 </p>
               )}
 
@@ -254,8 +352,15 @@ export default function Checkout() {
               {placing ? <><Loader2 size={18} className="animate-spin" /> Placing Order...</> : 'Place Order'}
             </button>
 
+            {/* Multi-store notice */}
+            {sellerFees.length > 1 && (
+              <p className="text-[11px] text-blue-600 bg-blue-50 px-3 py-2 rounded-lg mt-3 text-center leading-relaxed">
+                Items from {sellerFees.length} stores will be placed as {sellerFees.length} separate orders — one per store.
+              </p>
+            )}
+
             <p className="text-[10px] text-gray-400 text-center mt-3">
-              Total = Seller Price + Rider Shipping Fee
+              Total = Product Price + Rider Shipping Fee
             </p>
           </div>
         </div>

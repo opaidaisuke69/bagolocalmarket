@@ -50,6 +50,7 @@ export default function HomeScreen() {
   const [newProducts, setNewProducts] = useState<any[]>([]);
   const [popular, setPopular] = useState<any[]>([]);
   const [recommendations, setRecommendations] = useState<any[]>([]);
+  const [recSource, setRecSource] = useState<string>('sql'); // 'ai' | 'cache' | 'sql'
   const [categories, setCategories] = useState(CATEGORIES);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -62,13 +63,14 @@ export default function HomeScreen() {
         productsAPI.list({ sort: 'rating', limit: 8 }),
         productsAPI.list({ sort: 'newest', limit: 8 }),
         productsAPI.list({ sort: 'popular', limit: 8 }),
-        recommendationsAPI.get({ type: 'for_you', limit: 8 }).catch(() => ({ recommendations: [] })),
+        recommendationsAPI.get({ type: 'for_you', limit: 8 }).catch(() => ({ recommendations: [], source: 'sql' })),
         categoriesAPI.list().catch(() => ({ categories: [] })),
       ]);
       setFeatured(featuredRes.products || []);
       setNewProducts(newRes.products || []);
       setPopular(popularRes.products || []);
       setRecommendations(recsRes.recommendations || []);
+      setRecSource(recsRes.source || 'sql');
       if (catsRes.categories?.length > 0) setCategories(catsRes.categories);
       setApiAvailable(true);
     } catch {
@@ -87,10 +89,11 @@ export default function HomeScreen() {
     try {
       const [popularRes, recsRes] = await Promise.all([
         productsAPI.list({ sort: 'popular', limit: 8 }),
-        recommendationsAPI.get({ type: 'for_you', limit: 8 }).catch(() => ({ recommendations: [] })),
+        recommendationsAPI.get({ type: 'for_you', limit: 8 }).catch(() => ({ recommendations: [], source: 'sql' })),
       ]);
       setPopular(popularRes.products || []);
       setRecommendations(recsRes.recommendations || []);
+      setRecSource(recsRes.source || 'sql');
     } catch {}
   }, [apiAvailable]);
 
@@ -161,7 +164,7 @@ export default function HomeScreen() {
           <View style={{ backgroundColor: COLORS.primary[800], borderRadius: 12, padding: 20, overflow: 'hidden' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
               <Sparkles size={12} color={COLORS.accent[400]} />
-              <Text style={{ color: COLORS.accent[400], fontSize: 10, fontWeight: '700' }}>BAGO MARKETPLACE</Text>
+              <Text style={{ color: COLORS.accent[400], fontSize: 10, fontWeight: '700' }}>BAGO SHOP EXPRESS</Text>
             </View>
             <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 4 }}>
               Your Local Community Store
@@ -204,6 +207,12 @@ export default function HomeScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <TrendingUp size={14} color={COLORS.primary[800]} />
                 <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.gray[900] }}>RECOMMENDED FOR YOU</Text>
+                {(recSource === 'ai' || recSource === 'cache') && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: COLORS.primary[800], paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10 }}>
+                    <Sparkles size={8} color={COLORS.accent[400]} />
+                    <Text style={{ color: COLORS.accent[400], fontSize: 8, fontWeight: '900' }}>AI</Text>
+                  </View>
+                )}
               </View>
               <TouchableOpacity onPress={() => router.push('/marketplace' as any)}>
                 <Text style={{ fontSize: 11, color: COLORS.primary[800], fontWeight: '600' }}>See All ›</Text>

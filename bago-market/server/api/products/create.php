@@ -6,6 +6,7 @@ ini_set('log_errors', 1);
 require_once '../config/cors.php';
 require_once '../config/database.php';
 require_once '../middleware/auth.php';
+require_once '../config/logger.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -56,7 +57,7 @@ try {
         $data->name,
         $slug,
         $description,
-        round((float)$data->price * 1.02, 2), // store price + 2% platform commission
+        round((float)$data->price, 2), // seller's listed price — stored as-is, 2% commission deducted at order time
         $stock,
         $condition,
         $brand,
@@ -81,18 +82,40 @@ try {
     // Add variations
     if (!empty($data->variations)) {
         foreach ($data->variations as $variation) {
-            $varName = isset($variation->name) ? $variation->name : '';
-            $varValue = isset($variation->value) ? $variation->value : '';
-            $varPrice = isset($variation->price_adjustment) ? $variation->price_adjustment : 0;
-            $varStock = isset($variation->stock) ? $variation->stock : 0;
+            $varName     = isset($variation->name)             ? $variation->name             : '';
+            $varValue    = isset($variation->value)            ? $variation->value            : '';
+            $varPrice    = isset($variation->price_adjustment) ? $variation->price_adjustment : 0;
+            $varStock    = isset($variation->stock)            ? $variation->stock            : 0;
+            $varImageUrl = isset($variation->image_url)        ? $variation->image_url        : null;
+            $varHex      = isset($variation->hex)              ? $variation->hex              : null;
             if (!empty($varName) && !empty($varValue)) {
-                $stmt = $db->prepare("INSERT INTO product_variations (product_id, name, value, price_adjustment, stock) VALUES (?, ?, ?, ?, ?)");
-                $stmt->execute([$productId, $varName, $varValue, $varPrice, $varStock]);
+                // Build query dynamically so it works even if optional columns don't exist yet
+                $cols   = ['product_id', 'name', 'value', 'price_adjustment', 'stock'];
+                $vals   = [$productId, $varName, $varValue, $varPrice, $varStock];
+                $placeholders = ['?', '?', '?', '?', '?'];
+
+                if ($varImageUrl !== null) {
+                    $cols[]         = 'image_url';
+                    $vals[]         = $varImageUrl;
+                    $placeholders[] = '?';
+                }
+                if ($varHex !== null) {
+                    $cols[]         = 'hex';
+                    $vals[]         = $varHex;
+                    $placeholders[] = '?';
+                }
+
+                $sql  = 'INSERT INTO product_variations (' . implode(', ', $cols) . ') VALUES (' . implode(', ', $placeholders) . ')';
+                $stmt = $db->prepare($sql);
+                $stmt->execute($vals);
             }
         }
     }
 
     $db->commit();
+
+    log_activity($db, $payload['user_id'], 'create_product', 'product', $productId,
+        "Created product \"{$data->name}\" (₱" . number_format((float)$data->price, 2) . ", stock: $stock)");
 
     http_response_code(201);
     echo json_encode([

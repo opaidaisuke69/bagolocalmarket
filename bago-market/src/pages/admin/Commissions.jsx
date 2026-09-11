@@ -31,10 +31,14 @@ export default function Commissions() {
   const orders  = data?.orders  || [];
 
   const summaryCards = [
-    { label: 'Total GMV',          value: `₱${fmt(summary.total_gmv)}`,           icon: ShoppingBag, color: 'text-indigo-700', bg: 'bg-indigo-50' },
-    { label: 'Seller Subtotal',    value: `₱${fmt(summary.total_seller_subtotal)}`,icon: TrendingUp,  color: 'text-blue-700',   bg: 'bg-blue-50' },
-    { label: 'Platform Commission',value: `₱${fmt(summary.total_commission)}`,     icon: DollarSign,  color: 'text-amber-700',  bg: 'bg-amber-50' },
-    { label: 'Rider Earnings',     value: `₱${fmt(summary.total_rider_earnings)}`, icon: Truck,       color: 'text-green-700',  bg: 'bg-green-50' },
+    { label: 'Total GMV (Buyer Paid)',  value: `₱${fmt(summary.total_gmv)}`,           icon: ShoppingBag, color: 'text-indigo-700', bg: 'bg-indigo-50',
+      sub: 'Product subtotal + shipping' },
+    { label: 'Seller Subtotal',         value: `₱${fmt(summary.total_seller_subtotal)}`,icon: TrendingUp,  color: 'text-blue-700',   bg: 'bg-blue-50',
+      sub: 'Before 2% platform deduction' },
+    { label: 'Platform Commission (2%)',value: `₱${fmt(summary.total_commission)}`,     icon: DollarSign,  color: 'text-amber-700',  bg: 'bg-amber-50',
+      sub: 'Deducted from seller payout' },
+    { label: 'Rider Earnings',          value: `₱${fmt(summary.total_rider_earnings)}`, icon: Truck,       color: 'text-green-700',  bg: 'bg-green-50',
+      sub: 'Shipping fees collected' },
   ];
 
   return (
@@ -48,6 +52,7 @@ export default function Commissions() {
               <div>
                 <p className={`text-xs font-medium ${c.color} opacity-80`}>{c.label}</p>
                 <p className={`text-lg font-bold ${c.color} mt-1`}>{c.value}</p>
+                {c.sub && <p className={`text-[10px] opacity-60 ${c.color} mt-0.5`}>{c.sub}</p>}
               </div>
               <c.icon size={20} className={c.color} />
             </div>
@@ -86,6 +91,7 @@ export default function Commissions() {
                   <th className="text-left px-3 py-2.5 text-gray-500 font-medium">Store</th>
                   <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Seller Revenue</th>
                   <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Commission (2%)</th>
+                  <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Seller Payout</th>
                   <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Orders</th>
                 </tr>
               </thead>
@@ -98,6 +104,9 @@ export default function Commissions() {
                     </td>
                     <td className="px-3 py-2.5 text-right text-gray-700">₱{fmt(s.seller_revenue)}</td>
                     <td className="px-3 py-2.5 text-right font-bold text-amber-700">₱{fmt(s.commission_contributed)}</td>
+                    <td className="px-3 py-2.5 text-right font-bold text-blue-700">
+                      ₱{fmt(Number(s.seller_revenue) - Number(s.commission_contributed))}
+                    </td>
                     <td className="px-3 py-2.5 text-right text-gray-600">{fmtN(s.orders_count)}</td>
                   </tr>
                 ))}
@@ -137,24 +146,30 @@ export default function Commissions() {
                   <th className="text-left px-3 py-2.5 text-gray-500 font-medium">Order</th>
                   <th className="text-left px-3 py-2.5 text-gray-500 font-medium">Buyer</th>
                   <th className="text-left px-3 py-2.5 text-gray-500 font-medium">Barangay</th>
-                  <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Seller Sub.</th>
-                  <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Commission</th>
+                  <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Subtotal</th>
+                  <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Commission (2%)</th>
+                  <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Seller Payout</th>
                   <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Shipping</th>
-                  <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Total</th>
+                  <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Buyer Total</th>
                   <th className="text-left px-3 py-2.5 text-gray-500 font-medium">Rider</th>
                   <th className="text-left px-3 py-2.5 text-gray-500 font-medium">Date</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {orders.length === 0 ? (
-                  <tr><td colSpan={9} className="text-center py-8 text-gray-400">No records found.</td></tr>
+                  <tr><td colSpan={10} className="text-center py-8 text-gray-400">No records found.</td></tr>
                 ) : orders.map((o) => (
                   <tr key={o.id} className="hover:bg-gray-50">
                     <td className="px-3 py-2.5 font-medium text-primary-800">{o.order_number}</td>
                     <td className="px-3 py-2.5 text-gray-700">{o.buyer_name}</td>
                     <td className="px-3 py-2.5 text-gray-500">{o.delivery_barangay}</td>
                     <td className="px-3 py-2.5 text-right text-gray-700">₱{fmt(o.subtotal)}</td>
-                    <td className="px-3 py-2.5 text-right font-bold text-amber-700">₱{fmt(o.commission_amount)}</td>
+                    <td className="px-3 py-2.5 text-right font-bold text-amber-700">
+                      -₱{fmt(o.commission_amount)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-bold text-blue-700">
+                      ₱{fmt(Number(o.subtotal) - Number(o.commission_amount))}
+                    </td>
                     <td className="px-3 py-2.5 text-right text-green-700">₱{fmt(o.delivery_fee)}</td>
                     <td className="px-3 py-2.5 text-right font-bold text-gray-900">₱{fmt(o.total_amount)}</td>
                     <td className="px-3 py-2.5 text-gray-500">{o.rider_name || '—'}</td>

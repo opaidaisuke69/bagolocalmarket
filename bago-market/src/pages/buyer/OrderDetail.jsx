@@ -1,14 +1,25 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { ChevronLeft, MapPin, Truck, Package, CheckCircle, Clock, XCircle } from 'lucide-react';
-import { ordersAPI } from '../../api/services';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { ChevronLeft, MapPin, Truck, Package, CheckCircle, Clock, XCircle, Star, ShoppingCart, RefreshCw } from 'lucide-react';
+import { ordersAPI, productsAPI, cartAPI } from '../../api/services';
+import { useCart } from '../../context/CartContext';
+import { useToast } from '../../context/ToastContext';
 import StatusBadge from '../../components/common/StatusBadge';
 import { PageLoader } from '../../components/common/LoadingSpinner';
+import RateProductsModal from '../../components/buyer/RateProductsModal';
 
 export default function OrderDetail() {
   const { id } = useParams();
-  const [order, setOrder] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  const [order, setOrder]             = useState(null);
+  const [loading, setLoading]         = useState(true);
+  const [showRateModal, setShowRateModal] = useState(false);
+  const [buyingAgain, setBuyingAgain] = useState(false);
+  // Track per-product review status for this order
+  const [myReviews, setMyReviews]     = useState({}); // { product_id: reviewObj }
+
+  const { addToCart, fetchCart } = useCart();
+  const { showToast } = useToast();
 
   const fetchOrder = async () => {
     try {
@@ -21,13 +32,44 @@ export default function OrderDetail() {
     }
   };
 
-  useEffect(() => { fetchOrder(); }, [id]);
+  const fetchMyReviews = async () => {
+    try {
+      const res = await productsAPI.myReviews({ order_id: id });
+      setMyReviews(res.data.by_product || {});
+    } catch {
+      setMyReviews({});
+    }
+  };
+
+  useEffect(() => {
+    fetchOrder();
+    fetchMyReviews();
+  }, [id]);
 
   // Real-time polling
   useEffect(() => {
-    const interval = setInterval(fetchOrder, 3000);
+    const interval = setInterval(fetchOrder, 5000);
     return () => clearInterval(interval);
   }, [id]);
+
+  const handleBuyAgain = async () => {
+    setBuyingAgain(true);
+    try {
+      const uniqueItems = order.items.filter(
+        (item, idx, arr) => arr.findIndex((i) => i.product_id === item.product_id) === idx
+      );
+      // Sequential adds then force a cart sync before navigating
+      for (const item of uniqueItems) {
+        await cartAPI.add({ product_id: item.product_id, quantity: item.quantity, variation_id: item.variation_id || null });
+      }
+      await fetchCart();
+      navigate('/checkout');
+    } catch {
+      showToast('Failed to add items to cart.', 'error');
+    } finally {
+      setBuyingAgain(false);
+    }
+  };
 
   if (loading) return <PageLoader />;
   if (!order) return <div className="text-center py-20 text-gray-500">Order not found.</div>;
@@ -44,8 +86,16 @@ export default function OrderDetail() {
   const statusOrder = ['pending', 'confirmed', 'preparing', 'ready_to_ship', 'shipped', 'out_for_delivery', 'delivered'];
   const currentIdx = statusOrder.indexOf(order.status);
   const isCancelled = order.status === 'cancelled';
+  const isDelivered = order.status === 'delivered';
+
+  // Compute review state from myReviews
+  const uniqueProductIds = [...new Set((order.items || []).map(i => i.product_id))];
+  const reviewedIds      = uniqueProductIds.filter(pid => myReviews[pid]);
+  const fullyRated       = uniqueProductIds.length > 0 && reviewedIds.length >= uniqueProductIds.length;
+  const partiallyRated   = reviewedIds.length > 0 && !fullyRated;
 
   return (
+    <>
     <div className="pb-20 md:pb-6">
       <Link to="/orders" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-primary-800 mb-4">
         <ChevronLeft size={16} /> Back to Orders
@@ -60,6 +110,69 @@ export default function OrderDetail() {
         </div>
         <StatusBadge status={order.status} type="order" />
       </div>
+
+      {/* ── Rate Products Banner (delivered orders) ── */}
+      {isDelivered && (
+        <div className={`mb-6 rounded-2xl p-4 flex items-center gap-4 border-2 ${
+          fullyRated
+            ? 'bg-green-50 border-green-200'
+            : 'bg-gradient-to-r from-yellow-50 to-amber-50 border-yellow-200'
+        }`}>
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
+            fullyRated ? 'bg-green-500' : 'bg-yellow-400'
+          }`}>
+            {fullyRated
+              ? <CheckCircle size={22} className="text-white" />
+              : <Star size={22} className="text-white fill-white" />
+            }
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-gray-900 text-sm">
+              {fullyRated ? 'You rated this order' : 'How was your order?'}
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {fullyRated
+                ? `${reviewedIds.length} of ${uniqueProductIds.length} product${uniqueProductIds.length !== 1 ? 's' : ''} reviewed`
+                : partiallyRated
+                  ? `${reviewedIds.length} of ${uniqueProductIds.length} rated — finish rating`
+                  : 'Your feedback helps sellers improve their products.'
+              }
+            </p>
+          </div>
+          <button
+            onClick={() => setShowRateModal(true)}
+            className={`shrink-0 flex items-center gap-1.5 font-bold text-sm px-4 py-2 rounded-xl transition-colors ${
+              fullyRated
+                ? 'bg-green-100 hover:bg-green-200 text-green-800'
+                : 'bg-yellow-400 hover:bg-yellow-500 text-yellow-900'
+            }`}
+          >
+            {fullyRated ? (
+              <><CheckCircle size={14} /> View Rating</>
+            ) : (
+              <><Star size={14} className="fill-yellow-900" /> {partiallyRated ? 'Finish Rating' : 'Rate Now'}</>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* ── Buy Again / delivered actions ── */}
+      {(isDelivered || isCancelled) && (
+        <div className="mb-6">
+          <button
+            onClick={handleBuyAgain}
+            disabled={buyingAgain}
+            className="flex items-center gap-2 px-4 py-2.5 bg-primary-800 hover:bg-primary-900 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-60"
+          >
+            {buyingAgain ? (
+              <RefreshCw size={15} className="animate-spin" />
+            ) : (
+              <ShoppingCart size={15} />
+            )}
+            Buy Again
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
@@ -139,19 +252,58 @@ export default function OrderDetail() {
           <div className="bg-white rounded-xl border p-5">
             <h3 className="font-semibold text-gray-900 mb-4">Order Items</h3>
             <div className="divide-y">
-              {order.items?.map(item => (
-                <div key={item.id} className="flex items-center gap-3 py-3">
-                  <div className="w-14 h-14 bg-gray-100 rounded-lg overflow-hidden shrink-0">
-                    {item.product_image && <img src={item.product_image} alt="" className="w-full h-full object-cover" />}
+              {order.items?.map(item => {
+                const itemReview = myReviews[item.product_id];
+                return (
+                  <div key={item.id} className="flex items-center gap-3 py-3">
+                    <div className="w-14 h-14 bg-gray-100 rounded-lg overflow-hidden shrink-0">
+                      {item.product_image && (
+                        <img src={item.product_image} alt="" className="w-full h-full object-cover" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{item.product_name}</p>
+                      {item.variation_label && (
+                        <p className="text-xs text-primary-700 font-semibold mt-0.5">{item.variation_label}</p>
+                      )}
+                      <p className="text-xs text-gray-500">{item.store_name} • x{item.quantity}</p>
+                      {/* Show rating if this item has been reviewed */}
+                      {itemReview && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          {[1,2,3,4,5].map(i => (
+                            <Star key={i} size={10}
+                              className={i <= itemReview.rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-200 fill-gray-100'}
+                            />
+                          ))}
+                          <span className="text-[10px] text-gray-400 ml-0.5">Rated</span>
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-sm font-semibold shrink-0">
+                      ₱{(item.price * item.quantity).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                    </p>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{item.product_name}</p>
-                    <p className="text-xs text-gray-500">{item.store_name} • x{item.quantity}</p>
-                  </div>
-                  <p className="text-sm font-semibold">₱{(item.price * item.quantity).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
+            {isDelivered && (
+              <button
+                onClick={() => setShowRateModal(true)}
+                className={`mt-4 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                  fullyRated
+                    ? 'border-2 border-green-200 text-green-700 hover:bg-green-50'
+                    : 'border-2 border-yellow-300 text-yellow-700 hover:bg-yellow-50'
+                }`}
+              >
+                {fullyRated ? (
+                  <><CheckCircle size={15} className="text-green-500" /> View Ratings</>
+                ) : (
+                  <><Star size={15} className="fill-yellow-400 text-yellow-400" />
+                    {partiallyRated ? 'Finish Rating Products' : 'Rate These Products'}
+                  </>
+                )}
+              </button>
+            )}
           </div>
         </div>
 
@@ -241,5 +393,18 @@ export default function OrderDetail() {
         </div>
       </div>
     </div>
+
+    {/* ── Rate Products Modal ── */}
+    {showRateModal && (
+      <RateProductsModal
+        order={order}
+        onClose={() => setShowRateModal(false)}
+        onAllReviewed={() => {
+          fetchMyReviews();
+          setShowRateModal(false);
+        }}
+      />
+    )}
+    </>
   );
 }

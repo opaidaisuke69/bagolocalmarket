@@ -16,7 +16,13 @@ export function CartProvider({ children }) {
     if (!user || user.role !== 'buyer') return;
     try {
       const res = await cartAPI.get();
-      setCart(res.data || { items: [], item_count: 0, subtotal: 0 });
+      const data = res.data || { items: [], item_count: 0, subtotal: 0 };
+      // Always derive item_count from actual items so it never jumps
+      // due to partial states during concurrent adds
+      data.item_count = (data.items || []).reduce(
+        (sum, item) => sum + Number(item.quantity || 1), 0
+      );
+      setCart(data);
     } catch {
       // silent fail
     }
@@ -28,28 +34,24 @@ export function CartProvider({ children }) {
       return;
     }
     fetchCart();
-    // Real-time polling every 3 seconds
-    intervalRef.current = setInterval(fetchCart, 3000);
+    // Poll every 10 seconds — aggressive 3s polling caused badge count jumps
+    // during sequential cart adds (Buy Again with multiple items)
+    intervalRef.current = setInterval(fetchCart, 10000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [fetchCart, user]);
 
-  const addToCart = async (productId, quantity = 1, variationId = null) => {
+  const addToCart = async (productId, quantity = 1, variationId = null, colorVariationId = null) => {
     if (!user || user.role !== 'buyer') {
-      // The component calling this should handle opening the login modal
       return false;
     }
-    // Optimistic update
-    setCart(prev => ({ ...prev, item_count: prev.item_count + 1 }));
     try {
-      await cartAPI.add({ product_id: productId, quantity, variation_id: variationId });
+      await cartAPI.add({ product_id: productId, quantity, variation_id: variationId, color_variation_id: colorVariationId });
       showToast('Product added to cart successfully.', 'success');
       await fetchCart();
       return true;
     } catch (err) {
-      // Rollback
-      setCart(prev => ({ ...prev, item_count: prev.item_count - 1 }));
       showToast(err.response?.data?.message || 'Failed to add to cart.', 'error');
       return false;
     }

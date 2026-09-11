@@ -33,6 +33,7 @@ export default function RootLayout() {
                 <Stack.Screen name="address/index" options={{ animation: 'slide_from_right' }} />
                 <Stack.Screen name="address/add"   options={{ animation: 'slide_from_bottom' }} />
                 <Stack.Screen name="address/edit"  options={{ animation: 'slide_from_bottom' }} />
+                <Stack.Screen name="settings"      options={{ animation: 'slide_from_right' }} />
               </Stack>
               <StatusBar style="light" backgroundColor={COLORS.primary[800]} />
             </View>

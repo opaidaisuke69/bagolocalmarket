@@ -40,8 +40,14 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
       setLoading(true);
       const data = await wishlistAPI.get();
       const wishlist = data.wishlist || data.items || data.products || [];
-      setItems(wishlist);
-      setProductIds(new Set(wishlist.map((item: any) => Number(item.product_id))));
+      // Ensure all product_id values are numbers — PHP returns strings
+      const normalized = wishlist.map((item: any) => ({
+        ...item,
+        product_id: Number(item.product_id),
+        id: Number(item.id),
+      }));
+      setItems(normalized);
+      setProductIds(new Set(normalized.map((item: any) => Number(item.product_id))));
     } catch {}
     finally { setLoading(false); }
   }, [user]);
@@ -56,29 +62,38 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
 
     const wasInWishlist = productIds.has(productId);
 
-    // Optimistic update
+    // Optimistic toggle — flip the heart color immediately, no server round-trip first
     if (wasInWishlist) {
       setProductIds(prev => { const next = new Set(prev); next.delete(productId); return next; });
       setItems(prev => prev.filter(item => Number(item.product_id) !== productId));
     } else {
       setProductIds(prev => new Set(prev).add(productId));
+      // We don't have full product data here — wishlist tab will refresh on focus
     }
 
     try {
       const res = await wishlistAPI.toggle({ product_id: productId });
       if (res.action === 'added') {
         showToast('Added to wishlist', 'success');
-        // Refresh to get full product data
-        fetchWishlist();
+        // Fetch full item data in background so wishlist tab has the product details
+        // Don't await — don't let the fetch overwrite our optimistic productIds state
+        wishlistAPI.get().then((data: any) => {
+          const wishlist = data.wishlist || data.items || data.products || [];
+          setItems(wishlist);
+          // Rebuild productIds from server truth — only after add, not remove
+          setProductIds(new Set(wishlist.map((item: any) => Number(item.product_id))));
+        }).catch(() => {});
       } else {
         showToast('Removed from wishlist', 'success');
+        // State already updated optimistically above — nothing else needed
       }
     } catch {
-      // Rollback
+      // Rollback on network error
       if (wasInWishlist) {
         setProductIds(prev => new Set(prev).add(productId));
       } else {
         setProductIds(prev => { const next = new Set(prev); next.delete(productId); return next; });
+        setItems(prev => prev.filter(item => Number(item.product_id) !== productId));
       }
       showToast('Failed to update wishlist', 'error');
     }

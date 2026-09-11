@@ -292,6 +292,9 @@ export default function OrderDetailScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 13, color: COLORS.gray[900], fontWeight: '500' }} numberOfLines={1}>{item.product_name}</Text>
+                  {item.variation_label ? (
+                    <Text style={{ fontSize: 11, color: COLORS.primary[700], fontWeight: '600', marginTop: 1 }}>{item.variation_label}</Text>
+                  ) : null}
                   <Text style={{ fontSize: 11, color: COLORS.gray[400], marginTop: 2 }}>{item.store_name} · x{item.quantity}</Text>
                 </View>
                 <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.gray[900] }}>

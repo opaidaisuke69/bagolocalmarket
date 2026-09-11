@@ -43,14 +43,27 @@ if ($payload['role'] === 'buyer' && $order['buyer_id'] != $payload['user_id']) {
     exit;
 }
 
-// Get order items (include per-item commission breakdown)
+// Auto-add color_variation_id to order_items if missing
+try { $db->exec("ALTER TABLE order_items ADD COLUMN IF NOT EXISTS color_variation_id INT NULL"); } catch (Exception $e) {}
+
+// Get order items (include per-item commission breakdown + variation)
 $stmt = $db->prepare("SELECT oi.*, p.name as product_name, p.slug,
     (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) as product_image,
-    u.full_name as seller_name, sp.store_name
+    u.full_name as seller_name, sp.store_name,
+    pv.name as variation_name, pv.value as variation_value,
+    pvc.value as color_value,
+    CASE
+        WHEN pvc.id IS NOT NULL AND pv.id IS NOT NULL THEN CONCAT('Color: ', pvc.value, ' · ', pv.name, ': ', pv.value)
+        WHEN pvc.id IS NOT NULL THEN CONCAT('Color: ', pvc.value)
+        WHEN pv.id IS NOT NULL THEN CONCAT(pv.name, ': ', pv.value)
+        ELSE NULL
+    END as variation_label
     FROM order_items oi
     JOIN products p ON oi.product_id = p.id
     JOIN users u ON oi.seller_id = u.id
     LEFT JOIN seller_profiles sp ON oi.seller_id = sp.user_id
+    LEFT JOIN product_variations pv ON oi.variation_id = pv.id
+    LEFT JOIN product_variations pvc ON oi.color_variation_id = pvc.id
     WHERE oi.order_id = ?");
 $stmt->execute([$id]);
 $order['items'] = $stmt->fetchAll(PDO::FETCH_ASSOC);

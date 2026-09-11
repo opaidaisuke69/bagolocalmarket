@@ -3,17 +3,27 @@ import { ShoppingCart, Heart, Star, MapPin, Sparkles, Package } from 'lucide-rea
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
 import { useAuthModal } from '../../context/AuthModalContext';
+import { useToast } from '../../context/ToastContext';
 import { recommendationsAPI } from '../../api/services';
 
 export default function ProductCard({ product, badge }) {
   const { addToCart } = useCart();
   const { user } = useAuth();
   const { openLogin } = useAuthModal();
+  const { showToast } = useToast();
 
   const handleAddToCart = (e) => {
     e.preventDefault();
     e.stopPropagation();
     if (!user) { openLogin(); return; }
+    if (user.role === 'seller') {
+      showToast('Seller accounts cannot purchase products. Please use a buyer account.', 'warning');
+      return;
+    }
+    if (user.role === 'admin') {
+      showToast('Admin accounts cannot purchase products.', 'warning');
+      return;
+    }
     if (user.role === 'buyer') {
       addToCart(product.id);
       recommendationsAPI.track({ product_id: product.id, interaction_type: 'add_to_cart' }).catch(() => {});
@@ -76,8 +86,8 @@ export default function ProductCard({ product, badge }) {
           <Heart size={14} />
         </button>
 
-        {/* Add to cart on hover */}
-        {inStock && (
+        {/* Add to cart on hover — only shown to buyers and guests */}
+        {inStock && (!user || user.role === 'buyer') && (
           <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent p-3 translate-y-full group-hover:translate-y-0 transition-transform duration-300">
             <button
               onClick={handleAddToCart}
@@ -115,13 +125,25 @@ export default function ProductCard({ product, badge }) {
 
         {/* Price row */}
         <div className="flex items-center justify-between mt-auto pt-1.5 border-t border-gray-50">
-          <p className="text-base font-bold text-primary-800">
-            ₱{Number(product.price).toLocaleString('en-PH', { minimumFractionDigits: 0 })}
-          </p>
-          {inStock && (
+          <div>
+            {product.variant_count > 0 && product.min_variant_price != null ? (
+              <p className="text-base font-bold text-primary-800">
+                {Number(product.min_variant_price).toFixed(0) === Number(product.max_variant_price).toFixed(0)
+                  ? `₱${Number(product.min_variant_price).toLocaleString('en-PH', { minimumFractionDigits: 0 })}`
+                  : `₱${Number(product.min_variant_price).toLocaleString('en-PH', { minimumFractionDigits: 0 })} – ₱${Number(product.max_variant_price).toLocaleString('en-PH', { minimumFractionDigits: 0 })}`
+                }
+              </p>
+            ) : (
+              <p className="text-base font-bold text-primary-800">
+                ₱{Number(product.price).toLocaleString('en-PH', { minimumFractionDigits: 0 })}
+              </p>
+            )}
+          </div>
+          {inStock && (!user || user.role === 'buyer') && (
             <button
               onClick={handleAddToCart}
               className="md:hidden w-7 h-7 bg-primary-800 rounded-lg flex items-center justify-center hover:bg-primary-900 transition-colors"
+              aria-label="Add to cart"
             >
               <ShoppingCart size={12} className="text-white" />
             </button>

@@ -64,7 +64,7 @@ function buildQuery(params: Record<string, any>): string {
 // Auth
 export const authAPI = {
   login: (data: { email: string; password: string }) =>
-    request('/auth/login.php', { method: 'POST', body: JSON.stringify(data) }),
+    request('/auth/login.php', { method: 'POST', body: JSON.stringify({ ...data, app: 'buyer' }) }),
   register: (data: any) =>
     request('/auth/register.php', { method: 'POST', body: JSON.stringify(data) }),
   me: () => request('/auth/me.php'),
@@ -82,12 +82,14 @@ export const productsAPI = {
     request(`/products/list.php${buildQuery(params)}`),
   detail: (id: number) =>
     request(`/products/detail.php?id=${id}`),
+  reviews: (params: Record<string, any> = {}) =>
+    request(`/products/reviews.php${buildQuery(params)}`),
 };
 
 // Cart
 export const cartAPI = {
   get: () => request('/cart/get.php'),
-  add: (data: { product_id: number; quantity: number }) =>
+  add: (data: { product_id: number; quantity: number; variation_id?: number | null }) =>
     request('/cart/add.php', { method: 'POST', body: JSON.stringify(data) }),
   update: (data: { item_id: number; quantity: number }) =>
     request('/cart/update.php', { method: 'PUT', body: JSON.stringify(data) }),
@@ -130,6 +132,12 @@ export const searchAPI = {
   search: (params: Record<string, any>) =>
     request(`/search/search.php${buildQuery(params)}`),
   history: () => request('/search/history.php'),
+  deleteHistory: (query: string) =>
+    request('/search/history.php', { method: 'DELETE', body: JSON.stringify({ query }) }),
+  clearHistory: () =>
+    request('/search/history.php', { method: 'DELETE', body: JSON.stringify({}) }),
+  popular: (limit = 10) =>
+    request(`/search/popular.php?limit=${limit}`),
 };
 
 // Wishlist
@@ -156,4 +164,15 @@ export const addressesAPI = {
     request('/addresses/manage.php', { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: number) =>
     request(`/addresses/manage.php?id=${id}`, { method: 'DELETE' }),
+};
+
+// Profile
+export const profileAPI = {
+  get: () => request('/users/profile.php'),
+  update: (data: { full_name?: string; contact_number?: string }) =>
+    request('/users/profile.php', { method: 'POST', body: JSON.stringify({ action: 'update_profile', ...data }) }),
+  updatePhoto: (imageBase64: string) =>
+    request('/users/profile.php', { method: 'POST', body: JSON.stringify({ action: 'update_photo', image: imageBase64 }) }),
+  changePassword: (data: { current_password: string; new_password: string }) =>
+    request('/users/profile.php', { method: 'POST', body: JSON.stringify({ action: 'change_password', ...data }) }),
 };

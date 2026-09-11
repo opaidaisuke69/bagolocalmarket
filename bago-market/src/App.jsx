@@ -32,6 +32,10 @@
   import EditProduct from './pages/seller/EditProduct';
   import SellerOrders from './pages/seller/Orders';
   import SellerShipping from './pages/seller/Shipping';
+  import RemittanceSettings from './pages/seller/RemittanceSettings';
+  import SellerReports from './pages/seller/Reports';
+  import StoreSettings from './pages/seller/StoreSettings';
+  import Inventory from './pages/seller/Inventory';
 
   // Auth Pages
   import SellerRegister from './pages/auth/SellerRegister';
@@ -48,6 +52,12 @@
   import Riders from './pages/admin/Riders';
   import Commissions from './pages/admin/Commissions';
   import AdminRemittance from './pages/admin/Remittance';
+  import SellerPayouts from './pages/admin/SellerPayouts';
+  import AdminOrders from './pages/admin/Orders';
+  import Categories from './pages/admin/Categories';
+  import Activities from './pages/admin/Activities';
+  import Warnings from './pages/admin/Warnings';
+  import Buyers from './pages/admin/Buyers';
 
   // Route Guards
   function ProtectedRoute({ children, roles }) {
@@ -117,9 +127,10 @@
             <Route path="/seller/edit-product/:id" element={<EditProduct />} />
             <Route path="/seller/orders" element={<SellerOrders />} />
             <Route path="/seller/shipping" element={<SellerShipping />} />
-            <Route path="/seller/reports" element={<div className="text-center py-20 text-gray-500">Seller reports</div>} />
-            <Route path="/seller/inventory" element={<div className="text-center py-20 text-gray-500">Inventory management</div>} />
-            <Route path="/seller/settings" element={<div className="text-center py-20 text-gray-500">Store settings</div>} />
+            <Route path="/seller/remittance" element={<RemittanceSettings />} />
+            <Route path="/seller/reports"   element={<SellerReports />} />
+            <Route path="/seller/inventory" element={<Inventory />} />
+            <Route path="/seller/settings"  element={<StoreSettings />} />
           </Route>
 
           {/* Admin */}
@@ -128,16 +139,16 @@
             <Route path="/admin/sellers"                element={<SellerCredentials />} />
             <Route path="/admin/seller-applications"    element={<SellerApprovals />} />
             <Route path="/admin/riders"                 element={<Riders />} />
-            <Route path="/admin/buyers"                 element={<AdminUsers />} />
-            <Route path="/admin/products"               element={<ProductApprovals />} />
-            <Route path="/admin/product-approvals"      element={<ProductApprovals />} />
+            <Route path="/admin/buyers"                 element={<Buyers />} />
+            <Route path="/admin/products"               element={<ProductApprovals initialTab="" />} />
+            <Route path="/admin/product-approvals"      element={<ProductApprovals initialTab="pending" />} />
+            <Route path="/admin/orders"                 element={<AdminOrders />} />
+            <Route path="/admin/categories"             element={<Categories />} />
             <Route path="/admin/commissions"            element={<Commissions />} />
             <Route path="/admin/remittances"            element={<AdminRemittance />} />
-            <Route path="/admin/orders"                 element={<div className="text-center py-20 text-gray-500">All marketplace orders</div>} />
-            <Route path="/admin/categories"             element={<div className="text-center py-20 text-gray-500">Category management</div>} />
-            <Route path="/admin/activities"             element={<div className="text-center py-20 text-gray-500">Activity monitoring</div>} />
-            <Route path="/admin/warnings"               element={<AdminUsers />} />
-            <Route path="/admin/settings"               element={<div className="text-center py-20 text-gray-500">System settings</div>} />
+            <Route path="/admin/seller-payouts"         element={<SellerPayouts />} />
+            <Route path="/admin/activities"             element={<Activities />} />
+            <Route path="/admin/warnings"               element={<Warnings />} />
           </Route>
 
           {/* 404 */}

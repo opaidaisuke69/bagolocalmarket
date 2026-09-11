@@ -2,6 +2,7 @@
 require_once '../config/cors.php';
 require_once '../config/database.php';
 require_once '../middleware/auth.php';
+require_once '../config/logger.php';
 
 header('Content-Type: application/json');
 
@@ -57,6 +58,23 @@ if ($user['status'] === 'suspended') {
     exit;
 }
 
+// Rider accounts must use the dedicated Riders App — block on web marketplace
+if ($user['role'] === 'rider') {
+    http_response_code(403);
+    echo json_encode([
+        "message" => "Rider accounts must log in through the Bago Shop Riders App, not the web marketplace.",
+        "rider_redirect" => true,
+    ]);
+    exit;
+}
+
+// Buyer-only enforcement for the market app
+if (isset($data->app) && $data->app === 'buyer' && $user['role'] !== 'buyer') {
+    http_response_code(403);
+    echo json_encode(["message" => "Login  Failed!"]);
+    exit;
+}
+
 // Email verification check — only enforce if column exists and is populated
 if ($hasVerifiedCol && array_key_exists('email_verified_at', $user) && $user['email_verified_at'] === null) {
     http_response_code(403);
@@ -98,6 +116,9 @@ if ($user['role'] === 'rider') {
 // Update last login
 $stmt = $db->prepare("UPDATE users SET last_login_at = NOW() WHERE id = ?");
 $stmt->execute([$user['id']]);
+
+log_activity($db, $user['id'], 'login', 'user', $user['id'],
+    "{$user['full_name']} ({$user['role']}) logged in");
 
 $auth  = new AuthMiddleware($db);
 $token = $auth->generateToken($user['id'], $user['role']);

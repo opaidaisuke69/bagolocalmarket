@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "market-app",
+    "name": "Bago Shop Express",
     "slug": "market-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -29,8 +29,8 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow Bago Market to use your location for accurate delivery fee calculation.",
-          "locationWhenInUsePermission": "Allow Bago Market to use your location to pin your delivery address."
+          "locationAlwaysAndWhenInUsePermission": "Allow Bago Shop Express to use your location for accurate delivery fee calculation.",
+          "locationWhenInUsePermission": "Allow Bago Shop Express to use your location to pin your delivery address."
         }
       ],
       [

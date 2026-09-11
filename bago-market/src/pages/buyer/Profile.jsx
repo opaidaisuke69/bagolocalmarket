@@ -1,15 +1,26 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   User, MapPin, Settings, LogOut, ChevronRight, Edit3,
-  Plus, Trash2, Star, Check, X, Package, Heart, ShoppingBag,
+  Plus, Trash2, Star, Check, X, Package, Heart, ShoppingBag, Camera,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { addressesAPI, barangaysAPI } from '../../api/services';
 import axios from '../../api/axios';
 
+/* Resolve a server-relative image path for display.
+   The Vite proxy maps /uploads → XAMPP in dev.
+   In prod the file lives at the same origin.
+   Just return the path as-is — no origin manipulation needed. */
+function resolveImg(path) {
+  if (!path) return null;
+  if (path.startsWith('http')) return path;
+  // Ensure leading slash
+  return path.startsWith('/') ? path : `/${path}`;
+}
+
 export default function ProfilePage() {
-  const { user, logout } = useAuth();
+  const { user, logout, fetchUser } = useAuth();
 
   // ── User edit state ──────────────────────────────────────────────────────
   const [editing, setEditing]     = useState(false);
@@ -17,6 +28,25 @@ export default function ProfilePage() {
   const [name,    setName]        = useState(user?.full_name || user?.name || '');
   const [contact, setContact]     = useState(user?.contact_number || '');
   const [editMsg, setEditMsg]     = useState('');
+
+  // ── Profile photo upload ──────────────────────────────────────────────────
+  const photoInputRef  = useRef(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+
+  async function handlePhotoChange(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPhotoUploading(true);
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        await axios.post('/users/profile.php', { action: 'update_photo', image: ev.target.result });
+        await fetchUser(); // refresh user in AuthContext so avatar updates everywhere
+      } catch {}
+      setPhotoUploading(false);
+    };
+    reader.readAsDataURL(file);
+  }
 
   // ── Addresses state ──────────────────────────────────────────────────────
   const [addresses,   setAddresses]   = useState([]);
@@ -48,10 +78,15 @@ export default function ProfilePage() {
 
   async function loadAddresses() {
     setAddrLoading(true);
+    setAddrError('');
     try {
       const res = await addressesAPI.list();
-      setAddresses(res.addresses || []);
-    } catch { setAddrError('Failed to load addresses.'); }
+      // addressesAPI.list() returns an axios response: res.data.addresses
+      setAddresses(res.data?.addresses || []);
+    } catch (err) {
+      console.error('loadAddresses error:', err);
+      setAddrError('Failed to load addresses.');
+    }
     setAddrLoading(false);
   }
 
@@ -163,11 +198,41 @@ export default function ProfilePage() {
       {/* ── Hero Header ── */}
       <div className="bg-gradient-to-r from-primary-900 to-primary-700 pt-8 pb-16 px-4">
         <div className="max-w-3xl mx-auto flex items-center gap-5">
-          {/* Avatar */}
-          <div className="w-20 h-20 rounded-2xl bg-white/20 backdrop-blur-sm border-2 border-white/30 flex items-center justify-center flex-shrink-0">
-            <span className="text-3xl font-bold text-white">
-              {(user.full_name || user.name || 'U').charAt(0).toUpperCase()}
-            </span>
+          {/* Avatar — click to upload photo */}
+          <div className="relative flex-shrink-0">
+            <div className="w-20 h-20 rounded-2xl overflow-hidden bg-white/20 backdrop-blur-sm border-2 border-white/30 flex items-center justify-center">
+              {resolveImg(user.profile_image) ? (
+                <img
+                  src={resolveImg(user.profile_image)}
+                  alt={user.full_name}
+                  className="w-full h-full object-cover"
+                  onError={e => { e.currentTarget.style.display = 'none'; }}
+                />
+              ) : (
+                <span className="text-3xl font-bold text-white">
+                  {(user.full_name || user.name || 'U').charAt(0).toUpperCase()}
+                </span>
+              )}
+            </div>
+            {/* Camera overlay */}
+            <button
+              onClick={() => photoInputRef.current?.click()}
+              disabled={photoUploading}
+              className="absolute -bottom-1.5 -right-1.5 w-7 h-7 bg-accent-400 hover:bg-accent-300 rounded-full flex items-center justify-center shadow-lg transition-colors disabled:opacity-60"
+              title="Change photo"
+            >
+              {photoUploading
+                ? <span className="w-3 h-3 border-2 border-primary-900 border-t-transparent rounded-full animate-spin" />
+                : <Camera size={13} className="text-primary-900" />
+              }
+            </button>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handlePhotoChange}
+            />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 flex-wrap">

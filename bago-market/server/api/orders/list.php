@@ -67,11 +67,14 @@ $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 foreach ($orders as &$order) {
     $itemQuery = "SELECT oi.*, p.name as product_name, 
         (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) as product_image,
-        u.full_name as seller_name, sp.store_name
+        u.full_name as seller_name, sp.store_name,
+        pv.name as variation_name, pv.value as variation_value,
+        CASE WHEN pv.id IS NOT NULL THEN CONCAT(pv.name, ': ', pv.value) ELSE NULL END as variation_label
         FROM order_items oi
         JOIN products p ON oi.product_id = p.id
         JOIN users u ON oi.seller_id = u.id
         LEFT JOIN seller_profiles sp ON oi.seller_id = sp.user_id
+        LEFT JOIN product_variations pv ON oi.variation_id = pv.id
         WHERE oi.order_id = ?";
     
     if ($payload['role'] === 'seller') {
@@ -85,11 +88,17 @@ foreach ($orders as &$order) {
     
     $order['items'] = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
     
-    // Check if order has been rated
-    $stmtRated = $db->prepare("SELECT COUNT(*) as cnt FROM product_reviews WHERE order_id = ? AND user_id = ?");
+    // Check review status: how many distinct products have been reviewed for this order
+    $totalProducts = count(array_unique(array_column($order['items'], 'product_id')));
+    $stmtRated = $db->prepare(
+        "SELECT COUNT(DISTINCT product_id) as cnt FROM product_reviews WHERE order_id = ? AND user_id = ?"
+    );
     $stmtRated->execute([$order['id'], $payload['user_id']]);
-    $ratedCount = $stmtRated->fetch(PDO::FETCH_ASSOC)['cnt'];
-    $order['is_rated'] = $ratedCount > 0 ? true : false;
+    $ratedCount = (int)$stmtRated->fetch(PDO::FETCH_ASSOC)['cnt'];
+    // fully_rated = every unique product in the order has at least one review
+    $order['rated_count']    = (int)$ratedCount;
+    $order['total_products'] = (int)$totalProducts;
+    $order['is_rated']       = ((int)$totalProducts > 0 && (int)$ratedCount >= (int)$totalProducts) ? true : false;
 }
 
 echo json_encode([

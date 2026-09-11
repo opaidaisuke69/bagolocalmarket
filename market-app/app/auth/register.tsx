@@ -70,7 +70,7 @@ export default function RegisterScreen() {
         <ScrollView className="flex-1 px-6" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}>
           <View className="mt-6 mb-8">
             <Text className="text-2xl font-bold text-gray-900">Create Account</Text>
-            <Text className="text-sm text-gray-500 mt-1">Join Bago Marketplace today</Text>
+            <Text className="text-sm text-gray-500 mt-1">Join Bago Shop Express today</Text>
           </View>
 
           {/* Name */}

@@ -1,19 +1,21 @@
 import { Tabs } from 'expo-router';
 import { View, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Home, Search, Sparkles, Bell, User } from 'lucide-react-native';
+import { Home, Search, Sparkles, Heart, User } from 'lucide-react-native';
 import { COLORS } from '../../constants';
-import { useCart } from '../../context/CartContext';
+import { useWishlist } from '../../context/WishlistContext';
 
-function TabBarIcon({ icon: Icon, focused, badge, accent }: {
-  icon: any; focused: boolean; badge?: number; accent?: boolean;
+function TabBarIcon({ icon: Icon, focused, badge, fill }: {
+  icon: any; focused: boolean; badge?: number; fill?: boolean;
 }) {
-  const color = focused
-    ? (accent ? COLORS.accent[500] : COLORS.primary[800])
-    : COLORS.gray[400];
+  const color = focused ? COLORS.primary[800] : COLORS.gray[400];
   return (
     <View style={{ alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-      <Icon size={22} color={color} fill={focused ? color : 'none'} />
+      <Icon
+        size={22}
+        color={color}
+        fill={fill && focused ? color : 'none'}
+      />
       {badge ? (
         <View style={{
           position: 'absolute', top: -4, right: -10,
@@ -31,8 +33,8 @@ function TabBarIcon({ icon: Icon, focused, badge, accent }: {
 }
 
 export default function TabsLayout() {
-  const { count } = useCart();
-  const insets    = useSafeAreaInsets();
+  const { items: wishlistItems } = useWishlist();
+  const insets = useSafeAreaInsets();
 
   return (
     <Tabs
@@ -98,12 +100,19 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* Notifications */}
+      {/* Wishlist */}
       <Tabs.Screen
-        name="notifications"
+        name="wishlist"
         options={{
-          title: 'Alerts',
-          tabBarIcon: ({ focused }) => <TabBarIcon icon={Bell} focused={focused} />,
+          title: 'Wishlist',
+          tabBarIcon: ({ focused }) => (
+            <TabBarIcon
+              icon={Heart}
+              focused={focused}
+              fill={true}
+              badge={wishlistItems.length > 0 ? wishlistItems.length : undefined}
+            />
+          ),
         }}
       />
 
@@ -116,13 +125,9 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* Hidden orders tab — still accessible via deep link */}
-      <Tabs.Screen
-        name="orders"
-        options={{
-          href: null,  // hide from tab bar; access via /orders route instead
-        }}
-      />
+      {/* Hidden tabs — accessible via deep link only */}
+      <Tabs.Screen name="notifications" options={{ href: null }} />
+      <Tabs.Screen name="orders" options={{ href: null }} />
     </Tabs>
   );
 }

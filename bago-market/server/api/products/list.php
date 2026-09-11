@@ -83,7 +83,10 @@ $query = "SELECT p.*, c.name as category_name, c.slug as category_slug,
     b.name as barangay_name, u.full_name as seller_name,
     sp.store_name,
     COALESCE((SELECT AVG(p2.rating) FROM products p2 WHERE p2.seller_id = p.seller_id AND p2.rating > 0 AND p2.deleted_at IS NULL), 0) as seller_rating,
-    (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) as primary_image
+    (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) as primary_image,
+    (SELECT MIN(p.price + pv.price_adjustment) FROM product_variations pv WHERE pv.product_id = p.id) as min_variant_price,
+    (SELECT MAX(p.price + pv.price_adjustment) FROM product_variations pv WHERE pv.product_id = p.id) as max_variant_price,
+    (SELECT COUNT(*) FROM product_variations pv WHERE pv.product_id = p.id) as variant_count
     FROM products p
     LEFT JOIN categories c ON p.category_id = c.id
     LEFT JOIN barangays b ON p.barangay_id = b.id

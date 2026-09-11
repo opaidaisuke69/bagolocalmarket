@@ -1,6 +1,7 @@
 <?php
 require_once '../config/cors.php';
 require_once '../config/database.php';
+require_once '../config/logger.php';
 
 header('Content-Type: application/json');
 
@@ -104,6 +105,8 @@ try {
     $stmt->execute([$row['id']]);
 
     $db->commit();
+    log_activity($db, $row['user_id'], 'reset_password', 'user', $row['user_id'],
+        "Password reset successfully for user #{$row['user_id']}");
     echo json_encode(["message" => "Password reset successfully. You can now log in."]);
 } catch (Exception $e) {
     $db->rollBack();

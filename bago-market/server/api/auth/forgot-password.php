@@ -1,6 +1,7 @@
 <?php
 require_once '../config/cors.php';
 require_once '../config/database.php';
+require_once '../config/logger.php';
 
 header('Content-Type: application/json');
 
@@ -59,6 +60,9 @@ $expires = date('Y-m-d H:i:s', strtotime('+1 hour'));
 
 $stmt = $db->prepare("INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)");
 $stmt->execute([$user['id'], $token, $expires]);
+
+log_activity($db, $user['id'], 'forgot_password', 'user', $user['id'],
+    "Password reset requested for {$user['email']}");
 
 // Send email — non-fatal
 try {

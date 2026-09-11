@@ -40,7 +40,7 @@ export function ProductCard({ product, badge, onPress, disableWishlistRemove, ca
   const { user } = useAuth();
   const { isInWishlist, toggleWishlist } = useWishlist();
 
-  const wishlisted = isInWishlist(product.id);
+  const wishlisted = isInWishlist(Number(product.id));
 
   // PHP returns values as strings — cast explicitly before comparing
   const stockNum = Number(product.stock ?? 0);
@@ -77,11 +77,18 @@ export function ProductCard({ product, badge, onPress, disableWishlistRemove, ca
     <TouchableOpacity
       onPress={handlePress}
       activeOpacity={0.95}
-      style={{ width: cardWidth ?? CARD_WIDTH, marginBottom: 8 }}
-      className="bg-white rounded-lg overflow-hidden border border-gray-100"
+      style={{
+        width: cardWidth ?? CARD_WIDTH,
+        marginBottom: 8,
+        backgroundColor: '#fff',
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#f3f4f6',
+        overflow: 'hidden',
+      }}
     >
-      {/* Image */}
-      <View className="bg-gray-50 relative" style={{ height: cardWidth ?? CARD_WIDTH }}>
+      {/* Image container — no overflow:hidden here so heart isn't clipped */}
+      <View style={{ backgroundColor: '#f9fafb', height: cardWidth ?? CARD_WIDTH }}>
         {imageUri ? (
           <Image
             source={{ uri: imageUri }}
@@ -89,43 +96,61 @@ export function ProductCard({ product, badge, onPress, disableWishlistRemove, ca
             resizeMode="cover"
           />
         ) : (
-          <View className="w-full h-full items-center justify-center">
+          <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
             <Package size={32} color={COLORS.gray[300]} />
           </View>
         )}
 
         {/* Badge */}
         {badge ? (
-          <View className="absolute top-2 left-2 flex-row items-center bg-accent-400 px-2 py-0.5 rounded-sm" style={{ gap: 2 }}>
+          <View style={{ position: 'absolute', top: 6, left: 6, flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.accent[400], paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3, gap: 2 }}>
             <Sparkles size={8} color={COLORS.primary[900]} />
-            <Text className="text-[9px] font-bold text-primary-900">{badge}</Text>
+            <Text style={{ fontSize: 9, fontWeight: '700', color: COLORS.primary[900] }}>{badge}</Text>
           </View>
         ) : isLowStock ? (
-          <View className="absolute top-2 left-2 bg-red-500 px-2 py-0.5 rounded-sm">
-            <Text className="text-[9px] font-bold text-white">{product.stock} left</Text>
+          <View style={{ position: 'absolute', top: 6, left: 6, backgroundColor: '#ef4444', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3 }}>
+            <Text style={{ fontSize: 9, fontWeight: '700', color: '#fff' }}>{product.stock} left</Text>
           </View>
         ) : null}
 
-        {/* Wishlist button */}
-        <View className="absolute top-2 right-2">
-          <TouchableOpacity
-            onPress={(e) => {
-              e.stopPropagation?.();
-              if (!user) { router.push('/auth/login' as any); return; }
-              // If already wishlisted and on wishlist page, don't remove
-              if (wishlisted && disableWishlistRemove) return;
-              toggleWishlist(product.id);
-            }}
-            style={{ width: 28, height: 28, backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 14, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Heart size={14} color={wishlisted ? '#ef4444' : COLORS.gray[400]} fill={wishlisted ? '#ef4444' : 'none'} />
-          </TouchableOpacity>
-        </View>
+        {/* Wishlist heart button — always visible, red+filled when wishlisted */}
+        <TouchableOpacity
+          onPress={(e) => {
+            e.stopPropagation?.();
+            if (!user) { router.push('/auth/login' as any); return; }
+            if (wishlisted && disableWishlistRemove) return;
+            toggleWishlist(Number(product.id));
+          }}
+          style={{
+            position: 'absolute',
+            top: 6,
+            right: 6,
+            width: 30,
+            height: 30,
+            backgroundColor: wishlisted ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.75)',
+            borderRadius: 15,
+            alignItems: 'center',
+            justifyContent: 'center',
+            // Shadow so it's visible over light images
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.15,
+            shadowRadius: 2,
+            elevation: 2,
+          }}
+          activeOpacity={0.7}
+        >
+          <Heart
+            size={15}
+            color={wishlisted ? '#ef4444' : '#9ca3af'}
+            fill={wishlisted ? '#ef4444' : 'none'}
+          />
+        </TouchableOpacity>
 
         {/* Out of stock overlay */}
         {!inStock && (
-          <View className="absolute inset-0 bg-white/70 items-center justify-center">
-            <Text className="text-xs font-bold text-gray-600 bg-white px-3 py-1 rounded">SOLD OUT</Text>
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: '#4b5563', backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4 }}>SOLD OUT</Text>
           </View>
         )}
       </View>
@@ -139,9 +164,18 @@ export function ProductCard({ product, badge, onPress, disableWishlistRemove, ca
 
         {/* Price row */}
         <View className="flex-row items-center justify-between mt-1">
-          <Text className="text-sm font-bold text-primary-800">
-            ₱{Number(product.price).toLocaleString('en-PH', { minimumFractionDigits: 0 })}
-          </Text>
+          {(product as any).variant_count > 0 && (product as any).min_variant_price != null ? (
+            <Text className="text-sm font-bold text-primary-800" numberOfLines={1}>
+              {Number((product as any).min_variant_price).toFixed(0) === Number((product as any).max_variant_price).toFixed(0)
+                ? `₱${Number((product as any).min_variant_price).toLocaleString('en-PH', { minimumFractionDigits: 0 })}`
+                : `₱${Number((product as any).min_variant_price).toLocaleString('en-PH', { minimumFractionDigits: 0 })}–₱${Number((product as any).max_variant_price).toLocaleString('en-PH', { minimumFractionDigits: 0 })}`
+              }
+            </Text>
+          ) : (
+            <Text className="text-sm font-bold text-primary-800">
+              ₱{Number(product.price).toLocaleString('en-PH', { minimumFractionDigits: 0 })}
+            </Text>
+          )}
         </View>
 
         {/* Rating + sold (Shopee-style bottom row) */}

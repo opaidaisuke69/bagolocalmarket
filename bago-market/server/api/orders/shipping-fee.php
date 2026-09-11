@@ -4,14 +4,15 @@
  *
  * PIN-TO-PIN shipping fee using Haversine (straight-line GPS distance).
  *
- * Formula:  fee = max(₱25,  km × ₱5)
+ * Formula per seller:  fee = max(₱25,  km × ₱5)
  *   0 – 5 km  →  ₱25 flat
  *   > 5 km    →  km × ₱5   (e.g. 8 km = ₱40, 17 km = ₱85)
  *   Rounded up to nearest peso.
  *
- * Requires both buyer address AND seller profile to have lat/lng pinned.
- * If GPS is missing on either side, returns has_gps_issue = true with a
- * clear message instead of guessing from barangay names.
+ * Multi-seller:  fees are SUMMED — each seller requires a separate pickup.
+ *
+ * If GPS is missing on either side, ₱25 minimum is used for that seller
+ * and has_gps_issue = true is returned.
  */
 require_once '../config/cors.php';
 require_once '../config/database.php';
@@ -71,9 +72,9 @@ $buyerLat  = $buyerAddr['latitude']  !== null ? (float) $buyerAddr['latitude']  
 $buyerLon  = $buyerAddr['longitude'] !== null ? (float) $buyerAddr['longitude'] : null;
 
 // ─── Process sellers ──────────────────────────────────────────────────────────
-$maxKm           = 0.0;
+$totalFee        = 0.0;   // SUM of all seller fees
 $sellerBreakdown = [];
-$gpsIssues       = [];          // sellers without a pinned location
+$gpsIssues       = [];
 
 if (!empty($sellerIds)) {
     $placeholders = implode(',', array_fill(0, count($sellerIds), '?'));
@@ -95,22 +96,21 @@ if (!empty($sellerIds)) {
         $sellerLat = $s['latitude']  !== null ? (float) $s['latitude']  : null;
         $sellerLon = $s['longitude'] !== null ? (float) $s['longitude'] : null;
 
-        // Both sides must have GPS for pin-to-pin calculation
         if ($sellerLat === null || $sellerLon === null) {
             $gpsIssues[] = ($s['store_name'] ?: 'A seller') . ' has not pinned their store location.';
-            // Use 0 km — fee will be ₱25 minimum for this seller
-            $km = 0.0;
+            $km     = 0.0;
             $method = 'no_seller_gps';
         } elseif ($buyerLat === null || $buyerLon === null) {
             $gpsIssues[] = 'Your delivery address has no GPS pin. Please edit it and pin your location.';
-            $km = 0.0;
+            $km     = 0.0;
             $method = 'no_buyer_gps';
         } else {
             $km     = haversineKm($sellerLat, $sellerLon, $buyerLat, $buyerLon);
             $method = 'gps';
         }
 
-        $fee = calcFee($km);
+        $fee       = calcFee($km);
+        $totalFee += $fee;   // ADD each seller's fee
 
         $sellerBreakdown[] = [
             'seller_id'       => (int) $s['seller_id'],
@@ -122,34 +122,44 @@ if (!empty($sellerIds)) {
             'fee'             => $fee,
             'method'          => $method,
         ];
-
-        if ($km > $maxKm) $maxKm = $km;
     }
 }
 
-// If no sellers provided, just return the minimum
-$shippingFee  = calcFee($maxKm);
+// If no sellers provided, fall back to minimum
+if (empty($sellerIds)) {
+    $totalFee = 25.0;
+}
+
+$shippingFee  = (float) $totalFee;
 $hasGpsIssue  = !empty($gpsIssues) || ($buyerLat === null && !empty($sellerIds));
 $uniqueIssues = array_values(array_unique($gpsIssues));
 
-// Build readable GPS note
+// Aggregate distance for display (sum of all distances, shown as reference)
+$totalDistanceKm = array_sum(array_column($sellerBreakdown, 'distance_km'));
+
+// Build note
 $note = '';
 if ($buyerLat === null) {
     $note = 'Your delivery address has no GPS pin. Edit it and drop a pin for an accurate fee.';
 } elseif (!empty($uniqueIssues)) {
     $note = implode(' ', $uniqueIssues) . ' Showing minimum fee until all locations are pinned.';
+} elseif (count($sellerBreakdown) > 1) {
+    $note = 'Fee is the sum of each shop\'s delivery cost (' . count($sellerBreakdown) . ' shops).';
 }
 
 echo json_encode([
     'shipping_fee'    => $shippingFee,
-    'distance_km'     => round($maxKm, 3),
-    'fee_breakdown'   => '₱5 × km · min ₱25 (0–5 km) · pin-to-pin GPS',
+    'distance_km'     => round($totalDistanceKm, 3),
+    'fee_breakdown'   => count($sellerBreakdown) > 1
+        ? '₱5 × km · min ₱25 per shop · fees summed'
+        : '₱5 × km · min ₱25 (0–5 km) · pin-to-pin GPS',
     'method'          => $hasGpsIssue ? 'partial_gps' : 'gps',
     'buyer_has_gps'   => $buyerLat !== null,
     'buyer_barangay'  => $buyerAddr['barangay_name'],
     'buyer_lat'       => $buyerLat,
     'buyer_lng'       => $buyerLon,
     'sellers'         => $sellerBreakdown,
+    'seller_count'    => count($sellerBreakdown),
     'has_gps_issue'   => $hasGpsIssue,
     'note'            => $note,
 ]);

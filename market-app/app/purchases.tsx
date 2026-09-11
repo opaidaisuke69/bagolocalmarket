@@ -6,18 +6,17 @@ import {
   FlatList,
   RefreshControl,
   Image,
-  AppState,
+  ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
   Package,
-  ChevronRight,
   Store,
   RotateCcw,
 } from 'lucide-react-native';
-import { ordersAPI } from '../services/api';
+import { ordersAPI, cartAPI } from '../services/api';
 import { IMAGE_BASE_URL } from '../constants/api';
 import { Skeleton } from '../components/ui/Skeleton';
 import { ProgressBar } from '../components/ui/ProgressBar';
@@ -72,6 +71,7 @@ export default function PurchasesScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [ratedOrders, setRatedOrders] = useState<Set<number>>(new Set());
+  const [buyingAgain, setBuyingAgain] = useState<number | null>(null);
 
   const fetchOrders = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -79,7 +79,20 @@ export default function PurchasesScreen() {
       const params: Record<string, any> = { limit: 50 };
       if (activeTab !== 'all') params.status = activeTab;
       const data = await ordersAPI.list(params);
-      setOrders(data.orders || []);
+      const fetched: any[] = data.orders || [];
+      setOrders(fetched);
+      // Sync ratedOrders with the freshly fetched is_rated flags
+      // so that if the server now confirms an order is fully rated,
+      // we don't keep showing "Rate" based on stale local state
+      setRatedOrders(prev => {
+        const next = new Set(prev);
+        fetched.forEach(o => {
+          if (o.is_rated === true || o.is_rated === 1 || o.is_rated === '1') {
+            next.add(Number(o.id));
+          }
+        });
+        return next;
+      });
     } catch {}
     finally { setLoading(false); setRefreshing(false); }
   }, [activeTab]);
@@ -99,108 +112,162 @@ export default function PurchasesScreen() {
   }, [fetchOrders]);
   useRealtime(silentPollOrders, 1500, !loading);
 
+  const handleBuyAgain = async (orderId: number, items: any[]) => {
+    setBuyingAgain(orderId);
+    try {
+      const uniqueItems = items.filter(
+        (item: any, idx: number, arr: any[]) =>
+          arr.findIndex((i: any) => i.product_id === item.product_id) === idx
+      );
+
+      // Add all items to cart sequentially
+      for (const item of uniqueItems) {
+        await cartAPI.add({ product_id: item.product_id, quantity: item.quantity, variation_id: item.variation_id ?? null });
+      }
+
+      // Fetch fresh cart to get the actual cart item IDs
+      const cartData = await cartAPI.get();
+      const cartItems: any[] = cartData.items || [];
+
+      // Find the cart item IDs that match the products we just added
+      const addedProductIds = new Set(uniqueItems.map((i: any) => Number(i.product_id)));
+      const matchingIds = cartItems
+        .filter((ci: any) => addedProductIds.has(Number(ci.product_id)))
+        .map((ci: any) => String(ci.id));
+
+      if (matchingIds.length > 0) {
+        router.push(`/checkout?itemIds=${matchingIds.join(',')}` as any);
+      } else {
+        // Fallback: pass product IDs — checkout also matches on product_id
+        const productIds = uniqueItems.map((i: any) => String(i.product_id));
+        router.push(`/checkout?itemIds=${productIds.join(',')}` as any);
+      }
+    } catch {
+      router.push('/checkout' as any);
+    } finally {
+      setBuyingAgain(null);
+    }
+  };
+
   const renderOrder = ({ item }: { item: any }) => {
     const statusColor = STATUS_COLORS[item.status] || COLORS.gray[500];
     const statusLabel = STATUS_LABELS[item.status] || item.status?.toUpperCase();
     const orderItems = item.items || [];
     const firstItem = orderItems[0];
-    const firstImage = buildImageUrl(firstItem?.product_image);
-    const storeName = firstItem?.store_name || item.store_name || 'Store';
-    const productName = firstItem?.product_name || 'Order Item';
-    const itemCount = orderItems.length || item.items_count || 1;
+    const storeName = firstItem?.store_name || firstItem?.seller_name || 'Store';
+    const itemCount = orderItems.length;
+    // Explicit boolean — handles PHP true/false/1/0/"1"/"0"
+    const isRated = ratedOrders.has(Number(item.id)) ||
+      item.is_rated === true || item.is_rated === 1 || item.is_rated === '1';
 
     return (
-      <View style={{ backgroundColor: '#fff', marginBottom: 8 }}>
+      <View style={{ backgroundColor: '#fff', marginBottom: 8, borderRadius: 4, overflow: 'hidden' }}>
         {/* Store header */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#f9fafb' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Store size={14} color={COLORS.gray[700]} />
-            <Text style={{ fontSize: 13, fontWeight: '600', color: COLORS.gray[900] }}>{storeName}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Store size={13} color={COLORS.primary[800]} />
+            <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.gray[900] }}>{storeName}</Text>
           </View>
           <Text style={{ fontSize: 11, fontWeight: '700', color: statusColor }}>{statusLabel}</Text>
         </View>
 
-        {/* Order items */}
+        {/* All items for this order */}
         <TouchableOpacity
           onPress={() => router.push(`/orders/${item.id}` as any)}
           activeOpacity={0.8}
-          style={{ paddingHorizontal: 16, paddingVertical: 12 }}
         >
-          <View style={{ flexDirection: 'row', gap: 12 }}>
-            {/* Product image */}
-            <View style={{ width: 72, height: 72, borderRadius: 8, backgroundColor: '#f8fafc', overflow: 'hidden', borderWidth: 1, borderColor: '#f3f4f6' }}>
-              {firstImage ? (
-                <Image source={{ uri: firstImage }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-              ) : (
-                <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
-                  <Package size={24} color={COLORS.gray[300]} />
+          {orderItems.slice(0, 2).map((orderItem: any, idx: number) => {
+            const imgUri = buildImageUrl(orderItem.product_image);
+            return (
+              <View
+                key={idx}
+                style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f9fafb' }}
+              >
+                <View style={{ width: 60, height: 60, borderRadius: 8, backgroundColor: '#f8fafc', overflow: 'hidden', borderWidth: 1, borderColor: '#f3f4f6', flexShrink: 0 }}>
+                  {imgUri ? (
+                    <Image source={{ uri: imgUri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                  ) : (
+                    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                      <Package size={22} color={COLORS.gray[300]} />
+                    </View>
+                  )}
                 </View>
-              )}
-            </View>
-
-            {/* Product info */}
-            <View style={{ flex: 1, justifyContent: 'center' }}>
-              <Text style={{ fontSize: 13, color: COLORS.gray[900], lineHeight: 18 }} numberOfLines={2}>
-                {productName}
-              </Text>
-              {itemCount > 1 && (
-                <Text style={{ fontSize: 11, color: COLORS.gray[400], marginTop: 4 }}>
-                  +{itemCount - 1} more item{itemCount - 1 > 1 ? 's' : ''}
+                <View style={{ flex: 1, justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 12, color: COLORS.gray[900], lineHeight: 17 }} numberOfLines={2}>
+                    {orderItem.product_name}
+                  </Text>
+                  {orderItem.variation_label ? (
+                    <Text style={{ fontSize: 10, color: COLORS.primary[700], fontWeight: '600', marginTop: 2 }}>
+                      {orderItem.variation_label}
+                    </Text>
+                  ) : null}
+                  <Text style={{ fontSize: 11, color: COLORS.gray[400], marginTop: 3 }}>
+                    x{orderItem.quantity || 1}
+                  </Text>
+                </View>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.primary[800], alignSelf: 'center' }}>
+                  ₱{Number(orderItem.price * orderItem.quantity || orderItem.item_subtotal || 0).toLocaleString()}
                 </Text>
-              )}
-              <Text style={{ fontSize: 11, color: COLORS.gray[400], marginTop: 4 }}>
-                x{firstItem?.quantity || 1}
+              </View>
+            );
+          })}
+          {itemCount > 2 && (
+            <View style={{ paddingHorizontal: 16, paddingVertical: 8 }}>
+              <Text style={{ fontSize: 11, color: COLORS.gray[400] }}>
+                +{itemCount - 2} more item{itemCount - 2 > 1 ? 's' : ''}
               </Text>
             </View>
-
-            {/* Price */}
-            <View style={{ justifyContent: 'center', alignItems: 'flex-end' }}>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: COLORS.primary[800] }}>
-                ₱{Number(firstItem?.subtotal || firstItem?.price || item.total_amount || 0).toLocaleString()}
-              </Text>
-            </View>
-          </View>
+          )}
         </TouchableOpacity>
 
         {/* Footer with total and actions */}
-        <View style={{ borderTopWidth: 1, borderTopColor: '#f9fafb', paddingHorizontal: 16, paddingVertical: 12 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text style={{ fontSize: 11, color: COLORS.gray[400] }}>
-              {orderItems.length || 1} item{(orderItems.length || 1) > 1 ? 's' : ''} · Order Total:
-            </Text>
-            <Text style={{ fontSize: 15, fontWeight: '700', color: COLORS.primary[800] }}>
+        <View style={{ borderTopWidth: 1, borderTopColor: '#f3f4f6', paddingHorizontal: 16, paddingVertical: 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 6, marginBottom: 10 }}>
+            <Text style={{ fontSize: 12, color: COLORS.gray[500] }}>Order Total:</Text>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: COLORS.primary[800] }}>
               ₱{Number(item.total_amount || 0).toLocaleString()}
             </Text>
           </View>
 
           {/* Action buttons based on status */}
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
             {item.status === 'pending' && (
               <View style={{ backgroundColor: '#fef3c7', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4 }}>
                 <Text style={{ color: '#92400e', fontSize: 11, fontWeight: '600' }}>Cash on Delivery</Text>
               </View>
             )}
-            {item.status === 'delivered' && !ratedOrders.has(item.id) && !item.is_rated && (
+            {item.status === 'delivered' && !isRated && (
               <>
-                <TouchableOpacity style={{ borderWidth: 1, borderColor: COLORS.gray[300], paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <RotateCcw size={12} color={COLORS.gray[600]} />
+                <TouchableOpacity
+                  onPress={() => handleBuyAgain(item.id, item.items)}
+                  disabled={buyingAgain === item.id}
+                  style={{ borderWidth: 1, borderColor: COLORS.gray[300], paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4, opacity: buyingAgain === item.id ? 0.5 : 1 }}
+                >
+                  {buyingAgain === item.id
+                    ? <ActivityIndicator size="small" color={COLORS.gray[600]} />
+                    : <RotateCcw size={12} color={COLORS.gray[600]} />
+                  }
                   <Text style={{ color: COLORS.gray[600], fontSize: 12, fontWeight: '500' }}>Buy Again</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => {
-                    setRatedOrders(prev => new Set(prev).add(item.id));
-                    router.push(`/rate/${item.id}` as any);
-                  }}
+                  onPress={() => router.push(`/rate/${item.id}` as any)}
                   style={{ backgroundColor: COLORS.primary[800], paddingHorizontal: 20, paddingVertical: 8, borderRadius: 6 }}
                 >
                   <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>Rate</Text>
                 </TouchableOpacity>
               </>
             )}
-            {item.status === 'delivered' && (ratedOrders.has(item.id) || item.is_rated) && (
+            {item.status === 'delivered' && isRated && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <TouchableOpacity style={{ borderWidth: 1, borderColor: COLORS.gray[300], paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <RotateCcw size={12} color={COLORS.gray[600]} />
+                <TouchableOpacity
+                  onPress={() => handleBuyAgain(item.id, item.items)}
+                  disabled={buyingAgain === item.id}
+                  style={{ borderWidth: 1, borderColor: COLORS.gray[300], paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4, opacity: buyingAgain === item.id ? 0.5 : 1 }}
+                >
+                  {buyingAgain === item.id
+                    ? <ActivityIndicator size="small" color={COLORS.gray[600]} />
+                    : <RotateCcw size={12} color={COLORS.gray[600]} />
+                  }
                   <Text style={{ color: COLORS.gray[600], fontSize: 12, fontWeight: '500' }}>Buy Again</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -211,7 +278,7 @@ export default function PurchasesScreen() {
                 </TouchableOpacity>
               </View>
             )}
-            {(item.status === 'shipped' || item.status === 'confirmed') && (
+            {(item.status === 'shipped' || item.status === 'out_for_delivery' || item.status === 'confirmed' || item.status === 'preparing' || item.status === 'ready_to_ship') && (
               <TouchableOpacity
                 onPress={() => router.push(`/orders/${item.id}` as any)}
                 style={{ borderWidth: 1, borderColor: COLORS.gray[300], paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6 }}

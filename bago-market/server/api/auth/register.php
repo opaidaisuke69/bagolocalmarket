@@ -1,6 +1,7 @@
 <?php
 require_once '../config/cors.php';
 require_once '../config/database.php';
+require_once '../config/logger.php';
 
 // cors.php already sets Content-Type: application/json
 
@@ -134,6 +135,13 @@ if ($data->password !== $data->confirm_password) {
 }
 
 $role = !empty($data->role) ? $data->role : 'buyer';
+
+// ── Only buyer and seller can register via the web marketplace ────────────────
+if (!in_array($role, ['buyer', 'seller'])) {
+    http_response_code(400);
+    echo json_encode(["message" => "Invalid account type. Only buyer or seller accounts can be registered here."]);
+    exit;
+}
 
 // ── Seller-specific validation ────────────────────────────────────────────────
 if ($role === 'seller') {
@@ -305,6 +313,9 @@ try {
         "message" => "Registration successful. Please check your email to verify your account.",
         "user_id" => $userId,
     ]);
+
+    log_activity($db, $userId, 'register', 'user', $userId,
+        "New $role registered: {$data->full_name} ({$data->email})");
 
 } catch (Exception $e) {
     if ($db->inTransaction()) $db->rollBack();

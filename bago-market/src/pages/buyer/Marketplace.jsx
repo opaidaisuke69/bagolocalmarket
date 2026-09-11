@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Search, SlidersHorizontal, X, ChevronDown, LayoutGrid, List, Package, TrendingUp } from 'lucide-react';
-import { productsAPI, categoriesAPI } from '../../api/services';
+import { Search, SlidersHorizontal, X, ChevronDown, LayoutGrid, List, Package, TrendingUp, Clock, Trash2 } from 'lucide-react';
+import { productsAPI, categoriesAPI, searchAPI } from '../../api/services';
 import ProductCard from '../../components/marketplace/ProductCard';
 import { SkeletonList } from '../../components/common/Skeleton';
 import EmptyState from '../../components/common/EmptyState';
 import { useDebounce } from '../../hooks/useDebounce';
+import { useSEO } from '../../hooks/useSEO';
 import { SORT_OPTIONS, BARANGAYS } from '../../constants';
 
 const PRICE_RANGES = [
@@ -41,6 +42,11 @@ export default function Marketplace() {
   const [hasMore, setHasMore] = useState(true);
   const [total, setTotal] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
+  const [recentSearches, setRecentSearches] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+  const [popularSearches, setPopularSearches] = useState([]);
+  const searchRef = useRef(null);
   const lastRef = useRef(null);
 
   const [search, setSearch] = useState(searchParams.get('search') || '');
@@ -55,8 +61,57 @@ export default function Marketplace() {
 
   const debouncedSearch = useDebounce(search, 500);
 
+  // Dynamic SEO based on current search/category state
+  const activeCategory = categories.find(c => c.slug === filters.category);
+  useSEO({
+    title: debouncedSearch
+      ? `"${debouncedSearch}" — Search Results`
+      : activeCategory
+      ? `${activeCategory.name} Products`
+      : 'Marketplace',
+    description: debouncedSearch
+      ? `Find "${debouncedSearch}" products from local Bago City sellers. ${total} items found.`
+      : activeCategory
+      ? `Browse ${activeCategory.name} products from local Bago City sellers.`
+      : 'Discover local products from Bago City, Negros Occidental. Shop fresh produce, handmade crafts, electronics and more.',
+    url: `${window.location.origin}/marketplace${window.location.search}`,
+  });
+
   useEffect(() => {
     categoriesAPI.list().then(r => setCategories(r.data.categories || [])).catch(() => {});
+  }, []);
+
+  // Load recent search history
+  useEffect(() => {
+    searchAPI.history()
+      .then(r => setRecentSearches(r.data.history || []))
+      .catch(() => {});
+    // Popular searches — no auth needed
+    searchAPI.popular(8)
+      .then(r => setPopularSearches(r.data.popular || []))
+      .catch(() => {});
+  }, []);
+
+  // Fetch autocomplete suggestions via dedicated search endpoint
+  useEffect(() => {
+    if (!debouncedSearch.trim()) {
+      setSuggestions([]);
+      return;
+    }
+    searchAPI.search({ q: debouncedSearch, category: filters.category, limit: 5 })
+      .then(r => setSuggestions(r.data.suggestions || []))
+      .catch(() => {});
+  }, [debouncedSearch, filters.category]);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handler = (e) => {
+      if (searchRef.current && !searchRef.current.contains(e.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
   const fetchProducts = useCallback(async (pageNum = 1, append = false) => {
@@ -150,6 +205,28 @@ export default function Marketplace() {
     setSearchParams({});
   };
 
+  const applySearch = (term) => {
+    setSearch(term);
+    setShowSuggestions(false);
+    const p = new URLSearchParams(searchParams);
+    if (term) p.set('search', term); else p.delete('search');
+    setSearchParams(p);
+  };
+
+  const removeRecentSearch = async (term) => {
+    try {
+      await searchAPI.deleteItem(term);
+      setRecentSearches(prev => prev.filter(t => t !== term));
+    } catch {}
+  };
+
+  const clearAllRecentSearches = async () => {
+    try {
+      await searchAPI.clearAll();
+      setRecentSearches([]);
+    } catch {}
+  };
+
   const hasActive = Object.entries(filters).some(([k, v]) => v && !(k === 'sort' && v === 'newest')) || search;
   const activeCount = [filters.category, filters.barangay, filters.min_price || filters.max_price, filters.rating].filter(Boolean).length;
 
@@ -165,32 +242,155 @@ export default function Marketplace() {
 
         {/* ── Search + Filter bar ── */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 mb-5">
-          <div className="flex gap-3">
-            {/* Search input */}
-            <div className="flex-1 relative">
-              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <div className="flex gap-2 sm:gap-3">
+            {/* Search input with suggestions */}
+            <div className="flex-1 relative" ref={searchRef}>
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
               <input
                 type="text"
                 value={search}
-                onChange={e => setSearch(e.target.value)}
+                onChange={e => { setSearch(e.target.value); setShowSuggestions(true); }}
+                onFocus={() => setShowSuggestions(true)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); applySearch(search); }
+                  if (e.key === 'Escape') setShowSuggestions(false);
+                }}
                 placeholder="Search products, brands, categories..."
-                className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-800 focus:bg-white focus:border-transparent outline-none transition-all"
+                autoComplete="off"
+                aria-label="Search marketplace"
+                aria-autocomplete="list"
+                aria-expanded={showSuggestions}
+                className="w-full pl-10 pr-9 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-800 focus:bg-white focus:border-transparent outline-none transition-all placeholder-gray-400"
               />
               {search && (
-                <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                  <X size={15} />
+                <button
+                  onClick={() => { setSearch(''); setSuggestions([]); setShowSuggestions(false); }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                  aria-label="Clear search"
+                >
+                  <X size={13} />
                 </button>
               )}
+
+              {/* ── Suggestions Dropdown ── */}
+              {showSuggestions && (suggestions.length > 0 || (!search && (recentSearches.length > 0 || popularSearches.length > 0))) && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 rounded-2xl shadow-xl z-50 overflow-hidden divide-y divide-gray-50">
+
+                  {/* Recent searches — shown when input is empty */}
+                  {!search && recentSearches.length > 0 && (
+                    <div className="py-2">
+                      <div className="flex items-center justify-between px-4 py-1.5">
+                        <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Clock size={11} /> Recent
+                        </span>
+                        <button
+                          onClick={clearAllRecentSearches}
+                          className="text-[11px] text-red-400 hover:text-red-600 font-medium transition-colors"
+                        >
+                          Clear all
+                        </button>
+                      </div>
+                      {recentSearches.slice(0, 5).map((term) => (
+                        <div key={term} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-50 group cursor-pointer">
+                          <Clock size={13} className="text-gray-300 shrink-0" />
+                          <button
+                            onClick={() => applySearch(term)}
+                            className="flex-1 text-left text-sm text-gray-700 truncate hover:text-primary-800 transition-colors"
+                          >
+                            {term}
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); removeRecentSearch(term); }}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-gray-300 hover:text-red-400 rounded"
+                            aria-label={`Remove "${term}" from recent searches`}
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Popular searches — shown when input is empty */}
+                  {!search && popularSearches.length > 0 && (
+                    <div className="py-2">
+                      <div className="px-4 py-1.5">
+                        <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <TrendingUp size={11} className="text-primary-600" /> Trending
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-0">
+                        {popularSearches.slice(0, 6).map((item) => (
+                          <button
+                            key={item.query}
+                            onClick={() => applySearch(item.query)}
+                            className="flex items-center gap-2 px-4 py-2 hover:bg-gray-50 text-left group"
+                          >
+                            <TrendingUp size={12} className="text-primary-300 shrink-0 group-hover:text-primary-600 transition-colors" />
+                            <span className="text-sm text-gray-700 truncate">{item.query}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Category suggestions — shown while typing */}
+                  {search && suggestions.length > 0 && (
+                    <div className="py-2">
+                      <div className="px-4 py-1.5">
+                        <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Categories</span>
+                      </div>
+                      {suggestions.map((cat) => (
+                        <button
+                          key={cat.slug}
+                          onClick={() => { setFilter('category', cat.slug); setShowSuggestions(false); }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-primary-50 hover:text-primary-800 text-left transition-colors group"
+                        >
+                          <div className="w-7 h-7 rounded-lg bg-primary-50 group-hover:bg-primary-100 flex items-center justify-center shrink-0 transition-colors">
+                            <Search size={13} className="text-primary-500" />
+                          </div>
+                          <span className="text-sm text-gray-800 flex-1 font-medium">{cat.name}</span>
+                          <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0">
+                            {cat.product_count} items
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Bottom action: search for typed term */}
+                  {search && (
+                    <div className="py-2 px-4">
+                      <button
+                        onClick={() => applySearch(search)}
+                        className="w-full flex items-center gap-2 py-2 text-sm font-semibold text-primary-800 hover:text-primary-900 transition-colors"
+                      >
+                        <Search size={14} />
+                        Search for &ldquo;{search}&rdquo;
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-            {/* Filter toggle */}
+
+            {/* Filter toggle button */}
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-all ${showFilters ? 'bg-primary-800 text-white border-primary-800' : 'bg-gray-50 border-gray-200 text-gray-700 hover:border-gray-300'}`}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-all shrink-0 ${
+                showFilters
+                  ? 'bg-primary-800 text-white border-primary-800 shadow-sm'
+                  : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-white hover:border-gray-300 hover:shadow-sm'
+              }`}
+              aria-expanded={showFilters}
+              aria-label="Toggle filters"
             >
               <SlidersHorizontal size={15} />
-              Filters
+              <span className="hidden sm:inline">Filters</span>
               {activeCount > 0 && (
-                <span className={`text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center ${showFilters ? 'bg-white text-primary-800' : 'bg-primary-800 text-white'}`}>
+                <span className={`text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center shrink-0 ${
+                  showFilters ? 'bg-white text-primary-800' : 'bg-primary-800 text-white'
+                }`}>
                   {activeCount}
                 </span>
               )}

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -27,7 +27,7 @@ export default function LoginScreen() {
       if (!res.ok) throw new Error(data.message || 'Login failed');
       await AsyncStorage.setItem('rider_token', data.token);
       await AsyncStorage.setItem('rider_user', JSON.stringify(data.user));
-      router.replace('/dashboard');
+      router.replace('/(tabs)' as any);
     } catch (e: any) {
       setError(e.message);
     } finally { setLoading(false); }
@@ -39,11 +39,13 @@ export default function LoginScreen() {
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
           {/* Hero */}
           <View style={{ alignItems: 'center', justifyContent: 'center', paddingTop: insets.top + 60, paddingBottom: 40 }}>
-            <View style={{ width: 88, height: 88, borderRadius: 28, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center', marginBottom: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }}>
-              <Text style={{ fontSize: 44 }}>🛵</Text>
-            </View>
-            <Text style={{ fontSize: 28, fontWeight: '800', color: '#fff', letterSpacing: 0.3 }}>Bago Riders</Text>
-            <Text style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)', marginTop: 8, fontWeight: '400' }}>Delivery Partner App</Text>
+            <Image
+              source={require('../assets/images/logo.png')}
+              style={{ width: 120, height: 120, borderRadius: 28, marginBottom: 20 }}
+              resizeMode="contain"
+            />
+            <Text style={{ fontSize: 28, fontWeight: '800', color: '#fff', letterSpacing: 0.3 }}>BSE Riders</Text>
+            <Text style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)', marginTop: 8, fontWeight: '400' }}>Bago Shop Express Rider APP</Text>
           </View>
 
           {/* Form Card */}

@@ -2,6 +2,7 @@
 require_once '../config/cors.php';
 require_once '../config/database.php';
 require_once '../middleware/auth.php';
+require_once '../config/logger.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -73,7 +74,9 @@ if ($method === 'GET') {
         $stmt = $db->prepare($query);
         $stmt->execute([$rider_id]);
     } else {
-        // Available orders for pickup: 'ready_to_ship' (unassigned OR assigned to this rider)
+        // Available orders for pickup: 'ready_to_ship' with no rider assigned yet,
+        // OR already assigned to this rider.
+        // A rider with active deliveries can still request additional pickups.
         $query = "SELECT o.*,
             COALESCE(NULLIF(o.rider_earning, 0), o.delivery_fee, 0) AS rider_earning,
             o.order_number, o.total_amount, o.created_at,
@@ -89,31 +92,74 @@ if ($method === 'GET') {
             LEFT JOIN users u ON o.buyer_id = u.id
             LEFT JOIN deliveries d ON o.id = d.order_id
             LEFT JOIN pickup_requests pr ON o.id = pr.order_id AND pr.rider_id = ?
-            WHERE o.status = 'ready_to_ship' AND (d.rider_id IS NULL OR d.rider_id = 0 OR d.rider_id = ?)
+            WHERE o.status = 'ready_to_ship'
+              AND (d.rider_id IS NULL OR d.rider_id = 0 OR d.rider_id = ?)
             ORDER BY o.created_at DESC";
         $stmt = $db->prepare($query);
         $stmt->execute([$rider_id, $rider_id]);
     }
     
     $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Check if this rider currently has an active delivery (blocks new pickups)
+    $activeStmt = $db->prepare(
+        "SELECT o.order_number FROM orders o
+         JOIN deliveries d ON d.order_id = o.id
+         WHERE d.rider_id = ? AND o.status IN ('shipped', 'out_for_delivery')
+         LIMIT 1"
+    );
+    $activeStmt->execute([$rider_id]);
+    $activeDelivery = $activeStmt->fetch(PDO::FETCH_ASSOC);
+    $hasActiveDelivery = !empty($activeDelivery);
     
-    // Get items for each order (include seller contact)
+    // Get items for each order (include seller contact + pinned location)
     foreach ($orders as &$order) {
-        $stmtItems = $db->prepare("SELECT oi.*, p.name as product_name,
-            (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) as product_image,
-            sp.store_name, sp.complete_address as store_address,
-            u.full_name as seller_name, u.contact_number as seller_contact
-            FROM order_items oi
-            JOIN products p ON oi.product_id = p.id
-            LEFT JOIN seller_profiles sp ON oi.seller_id = sp.user_id
-            LEFT JOIN users u ON oi.seller_id = u.id
-            WHERE oi.order_id = ?");
+        $stmtItems = $db->prepare(
+            "SELECT oi.*, p.name as product_name,
+                (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) as product_image,
+                sp.store_name, sp.complete_address as store_address,
+                sp.latitude  as seller_lat,
+                sp.longitude as seller_lng,
+                sb.name      as seller_barangay,
+                u.full_name as seller_name, u.contact_number as seller_contact,
+                pv.name as variation_name, pv.value as variation_value,
+                CASE WHEN pv.id IS NOT NULL THEN CONCAT(pv.name, ': ', pv.value) ELSE NULL END as variation_label
+             FROM order_items oi
+             JOIN products p ON oi.product_id = p.id
+             LEFT JOIN seller_profiles sp ON oi.seller_id = sp.user_id
+             LEFT JOIN barangays sb ON sb.id = sp.barangay_id
+             LEFT JOIN users u ON oi.seller_id = u.id
+             LEFT JOIN product_variations pv ON oi.variation_id = pv.id
+             WHERE oi.order_id = ?"
+        );
         $stmtItems->execute([$order['id']]);
         $order['items'] = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
         $order['items_count'] = count($order['items']);
+
+        // Attach buyer delivery address coordinates (for navigate-to-customer)
+        $stmtAddr = $db->prepare(
+            "SELECT a.latitude  as buyer_lat,
+                    a.longitude as buyer_lng,
+                    a.street_address,
+                    b.name      as barangay_name
+             FROM addresses a
+             LEFT JOIN barangays b ON b.id = a.barangay_id
+             WHERE a.id = ?"
+        );
+        $stmtAddr->execute([$order['address_id']]);
+        $addr = $stmtAddr->fetch(PDO::FETCH_ASSOC);
+        if ($addr) {
+            $order['buyer_lat']      = $addr['buyer_lat'];
+            $order['buyer_lng']      = $addr['buyer_lng'];
+            // barangay_name is already on the order from the main query, but keep address copy safe
+        }
     }
     
-    echo json_encode(["orders" => $orders]);
+    echo json_encode([
+        "orders" => $orders,
+        "has_active_delivery" => $hasActiveDelivery,
+        "active_order" => $hasActiveDelivery ? $activeDelivery['order_number'] : null,
+    ]);
 
 } elseif ($method === 'POST') {
     $data = json_decode(file_get_contents("php://input"));
@@ -128,8 +174,33 @@ if ($method === 'GET') {
     $action = $data->action;
     $proof_image = isset($data->proof_image) ? $data->proof_image : null;
     $rider_id = $payload['user_id'];
+
+    // ── Helper: check if this rider has an active delivery (shipped or out_for_delivery) ─
+    // Returns the blocking order number if busy, null if free.
+    function getRiderActiveDelivery($db, $rider_id) {
+        $stmt = $db->prepare(
+            "SELECT o.order_number FROM orders o
+             JOIN deliveries d ON d.order_id = o.id
+             WHERE d.rider_id = ? AND o.status IN ('shipped', 'out_for_delivery')
+             LIMIT 1"
+        );
+        $stmt->execute([$rider_id]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
     
     if ($action === 'request_pickup') {
+        // Block if rider already has an active delivery
+        $active = getRiderActiveDelivery($db, $rider_id);
+        if ($active) {
+            http_response_code(400);
+            echo json_encode([
+                "message" => "You still have an active delivery (Order #{$active['order_number']}). Please complete it before requesting a new pickup.",
+                "has_active_delivery" => true,
+                "active_order" => $active['order_number'],
+            ]);
+            exit;
+        }
+
         // Rider requests to pick up — seller must approve
         $stmt = $db->prepare("SELECT id, status FROM orders WHERE id = ? AND status = 'ready_to_ship'");
         $stmt->execute([$order_id]);
@@ -139,16 +210,16 @@ if ($method === 'GET') {
             exit;
         }
         
-        // Check if already assigned (approved) to a rider
-        $stmt = $db->prepare("SELECT rider_id FROM deliveries WHERE order_id = ? AND rider_id IS NOT NULL AND rider_id != 0");
-        $stmt->execute([$order_id]);
+        // Check if already assigned (approved) to a DIFFERENT rider
+        $stmt = $db->prepare("SELECT rider_id FROM deliveries WHERE order_id = ? AND rider_id IS NOT NULL AND rider_id != 0 AND rider_id != ?");
+        $stmt->execute([$order_id, $rider_id]);
         if ($stmt->rowCount() > 0) {
             http_response_code(400);
-            echo json_encode(["message" => "This order is already assigned to a rider."]);
+            echo json_encode(["message" => "This order is already assigned to another rider."]);
             exit;
         }
         
-        // Check if rider already has a pending request
+        // Check if rider already has a pending/approved request for THIS order
         $stmt = $db->prepare("SELECT id, status FROM pickup_requests WHERE order_id = ? AND rider_id = ?");
         $stmt->execute([$order_id, $rider_id]);
         if ($stmt->rowCount() > 0) {
@@ -160,7 +231,7 @@ if ($method === 'GET') {
             }
         }
         
-        // Insert pickup request
+        // Insert or reset pickup request
         $stmt = $db->prepare("INSERT INTO pickup_requests (order_id, rider_id, status) VALUES (?, ?, 'pending') ON DUPLICATE KEY UPDATE status = 'pending', updated_at = NOW()");
         $stmt->execute([$order_id, $rider_id]);
         
@@ -178,8 +249,22 @@ if ($method === 'GET') {
         }
         
         echo json_encode(["message" => "Pickup requested! Waiting for seller approval.", "status" => "pending"]);
+        log_activity($db, $rider_id, 'request_pickup', 'order', $order_id,
+            "Rider requested pickup for order #$order_id");
     
     } elseif ($action === 'pickup') {
+        // Block if rider already has an active delivery
+        $active = getRiderActiveDelivery($db, $rider_id);
+        if ($active) {
+            http_response_code(400);
+            echo json_encode([
+                "message" => "You still have an active delivery (Order #{$active['order_number']}). Please complete it before picking up a new order.",
+                "has_active_delivery" => true,
+                "active_order" => $active['order_number'],
+            ]);
+            exit;
+        }
+
         // Rider picks up from seller — order must be 'ready_to_ship'
         $stmt = $db->prepare("SELECT id, status FROM orders WHERE id = ? AND status = 'ready_to_ship'");
         $stmt->execute([$order_id]);
@@ -189,7 +274,7 @@ if ($method === 'GET') {
             exit;
         }
         
-        // Verify rider is assigned (or assign now)
+        // Verify this order isn't assigned to a DIFFERENT rider
         $stmt = $db->prepare("SELECT rider_id FROM deliveries WHERE order_id = ?");
         $stmt->execute([$order_id]);
         $delivery = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -231,6 +316,8 @@ if ($method === 'GET') {
         }
         
         echo json_encode(["message" => "Order picked up! Status: Shipped", "status" => "shipped"]);
+        log_activity($db, $rider_id, 'pickup_order', 'order', $order_id,
+            "Rider picked up order #$order_id → shipped");
         
     } elseif ($action === 'out_for_delivery') {
         $stmt = $db->prepare("SELECT id FROM orders WHERE id = ? AND status = 'shipped'");
@@ -263,6 +350,8 @@ if ($method === 'GET') {
         }
         
         echo json_encode(["message" => "Order is out for delivery!", "status" => "out_for_delivery"]);
+        log_activity($db, $rider_id, 'out_for_delivery', 'order', $order_id,
+            "Rider marked order #$order_id as out for delivery");
         
     } elseif ($action === 'deliver') {
         $stmt = $db->prepare("SELECT id FROM orders WHERE id = ? AND status = 'out_for_delivery'");
@@ -293,6 +382,15 @@ if ($method === 'GET') {
             $stmt = $db->prepare("UPDATE seller_profiles SET total_sales = total_sales + ?, total_orders = total_orders + 1 WHERE user_id = ?");
             $stmt->execute([$st['total'], $st['seller_id']]);
         }
+
+        // Update product sold_count based on delivered quantity (not purchase)
+        $stmt = $db->prepare("SELECT product_id, SUM(quantity) as qty FROM order_items WHERE order_id = ? GROUP BY product_id");
+        $stmt->execute([$order_id]);
+        $deliveredItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($deliveredItems as $item) {
+            $stmt = $db->prepare("UPDATE products SET sold_count = sold_count + ? WHERE id = ?");
+            $stmt->execute([$item['qty'], $item['product_id']]);
+        }
         
         // Notify buyer
         $stmt = $db->prepare("SELECT buyer_id FROM orders WHERE id = ?");
@@ -304,6 +402,8 @@ if ($method === 'GET') {
         }
         
         echo json_encode(["message" => "Order delivered successfully!", "status" => "delivered"]);
+        log_activity($db, $rider_id, 'deliver_order', 'order', $order_id,
+            "Rider delivered order #$order_id");
         
     } elseif ($action === 'cancel_delivery') {
         // Rider cancels — returns order to ready_to_ship
@@ -352,6 +452,8 @@ if ($method === 'GET') {
         }
         
         echo json_encode(["message" => "Delivery cancelled. Order returned to available pool.", "status" => "ready_to_ship"]);
+        log_activity($db, $rider_id, 'cancel_delivery', 'order', $order_id,
+            "Rider cancelled delivery for order #$order_id. Reason: $cancel_reason");
         
     } else {
         http_response_code(400);

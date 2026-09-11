@@ -65,6 +65,9 @@ export default function Cart() {
                       <Link to={`/product/${item.product_id}`} className="text-sm font-medium text-gray-900 hover:text-primary-800 line-clamp-2">
                         {item.product_name}
                       </Link>
+                      {item.variation_label && (
+                        <p className="text-xs text-primary-700 font-semibold mt-0.5">{item.variation_label}</p>
+                      )}
                       <p className="text-xs text-gray-500 mt-0.5">{item.seller_barangay || 'Bago City'}</p>
                       <p className="text-primary-800 font-bold mt-1">
                         ₱{Number(item.price).toLocaleString('en-PH', { minimumFractionDigits: 2 })}

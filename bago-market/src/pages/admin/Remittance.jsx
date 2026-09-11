@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, CheckCircle, XCircle, Plus, Trash2, QrCode, Upload } from 'lucide-react';
+import { Search, CheckCircle, XCircle, Plus, Trash2, QrCode, Upload, ChevronDown, ChevronUp, Store } from 'lucide-react';
 import { adminAPI } from '../../api/services';
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/common/Modal';
@@ -18,21 +18,27 @@ export default function AdminRemittance() {
   const [rejectReason, setRejectReason] = useState('');
   const [showReject, setShowReject]     = useState(false);
   const [showQrModal, setShowQrModal]   = useState(false);
+  const [expandedRows, setExpandedRows] = useState({});  // { remittance_id: bool }
+  const [showOverall, setShowOverall]   = useState(false);
   const [qrForm, setQrForm]     = useState({ id: null, label: '', type: 'gcash', account_name: '', account_number: '', qr_code_image: null, is_active: true });
   const fileRef = useRef();
   const { showToast } = useToast();
 
-  const fetchData = async () => {
+  const fetchData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await adminAPI.remittances({ status, page, limit: 20 });
       setData(res.data);
-    } catch { showToast('Failed to load remittance data.', 'error'); }
-    finally { setLoading(false); }
+    } catch { if (!silent) showToast('Failed to load remittance data.', 'error'); }
+    finally { if (!silent) setLoading(false); }
   };
 
+  // Initial + filter-change load (shows skeleton)
   useEffect(() => { setLoading(true); fetchData(); }, [status, page]);
+
+  // Silent background polling every 8s
   useEffect(() => {
-    const t = setInterval(fetchData, 8000);
+    const t = setInterval(() => fetchData(true), 8_000);
     return () => clearInterval(t);
   }, [status, page]);
 
@@ -119,6 +125,68 @@ export default function AdminRemittance() {
         </div>
       )}
 
+      {/* Overall seller distribution panel */}
+      {(data?.overall_distributions || []).length > 0 && (
+        <div className="bg-white rounded-xl border overflow-hidden">
+          <button
+            onClick={() => setShowOverall(v => !v)}
+            className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition"
+          >
+            <div className="flex items-center gap-2">
+              <Store size={16} className="text-primary-800" />
+              <span className="font-semibold text-gray-900 text-sm">Overall Seller Distribution</span>
+              <span className="bg-primary-50 text-primary-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                {data.overall_distributions.length} sellers
+              </span>
+            </div>
+            {showOverall ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+          </button>
+
+          {showOverall && (
+            <div className="border-t">
+              {/* Total row */}
+              <div className="px-5 py-3 bg-gray-50 border-b grid grid-cols-4 gap-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+                <span>Seller / Store</span>
+                <span className="text-right">Orders</span>
+                <span className="text-right">Subtotal (Products)</span>
+                <span className="text-right">Total (w/ Commission)</span>
+              </div>
+              {data.overall_distributions.map((s, i) => {
+                const totalSubtotal = data.overall_distributions.reduce((a, x) => a + Number(x.seller_subtotal || 0), 0);
+                const pct = totalSubtotal > 0 ? (Number(s.seller_subtotal) / totalSubtotal * 100).toFixed(1) : '0.0';
+                return (
+                  <div key={s.seller_id || i} className="px-5 py-3 grid grid-cols-4 gap-2 border-b last:border-b-0 hover:bg-gray-50 items-center">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{s.store_name || `Seller #${s.seller_id}`}</p>
+                      <div className="mt-1 h-1.5 bg-gray-100 rounded-full w-32">
+                        <div className="h-1.5 bg-primary-800 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{pct}% of total</p>
+                    </div>
+                    <p className="text-right text-sm text-gray-700 font-medium">{fmtN(s.order_count)}</p>
+                    <p className="text-right text-sm text-gray-900 font-semibold">₱{fmt(s.seller_subtotal)}</p>
+                    <p className="text-right text-sm text-primary-800 font-bold">₱{fmt(s.seller_total)}</p>
+                  </div>
+                );
+              })}
+              {/* Grand total */}
+              <div className="px-5 py-3 bg-gray-50 grid grid-cols-4 gap-2 border-t">
+                <p className="text-sm font-bold text-gray-900">Grand Total</p>
+                <p className="text-right text-sm font-bold text-gray-700">
+                  {fmtN(data.overall_distributions.reduce((a, x) => a + Number(x.order_count || 0), 0))}
+                </p>
+                <p className="text-right text-sm font-bold text-gray-900">
+                  ₱{fmt(data.overall_distributions.reduce((a, x) => a + Number(x.seller_subtotal || 0), 0))}
+                </p>
+                <p className="text-right text-sm font-bold text-primary-800">
+                  ₱{fmt(data.overall_distributions.reduce((a, x) => a + Number(x.seller_total || 0), 0))}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Admin QR codes section */}
       {(data?.qr_codes || []).length > 0 && (
         <div className="bg-white rounded-xl border p-5">
@@ -191,53 +259,117 @@ export default function AdminRemittance() {
                 {(!data?.remittances || data.remittances.length === 0) ? (
                   <tr><td colSpan={7} className="text-center py-10 text-gray-400">No remittances found.</td></tr>
                 ) : data.remittances.map(r => (
-                  <tr key={r.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-gray-900">{r.rider_name}</p>
-                      <p className="text-xs text-gray-400">{r.rider_contact}</p>
-                    </td>
-                    <td className="px-4 py-3 text-right font-bold text-gray-900">₱{fmt(r.amount)}</td>
-                    <td className="px-4 py-3 text-xs text-gray-500">
-                      {r.period_start}<br/>{r.period_end !== r.period_start ? `→ ${r.period_end}` : ''}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-600">
-                      <p>{r.payment_method || '—'}</p>
-                      {r.reference_number && <p className="text-gray-400">#{r.reference_number}</p>}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold
-                        ${r.status === 'verified' ? 'bg-green-100 text-green-700'
-                        : r.status === 'rejected' ? 'bg-red-100 text-red-700'
-                        : 'bg-yellow-100 text-yellow-700'}`}>
-                        {r.status.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {r.receipt_image && (
-                        <a href={`${IMAGE_BASE}${r.receipt_image}`} target="_blank" rel="noopener noreferrer">
-                          <img src={`${IMAGE_BASE}${r.receipt_image}`} alt="Receipt"
-                            className="w-12 h-12 object-cover rounded-lg border hover:opacity-80 transition-opacity" />
-                        </a>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {r.status === 'pending' && (
-                        <div className="flex items-center justify-center gap-1">
-                          <button onClick={() => handleVerify(r.id)}
-                            className="p-1.5 hover:bg-green-50 rounded text-green-600" title="Verify">
-                            <CheckCircle size={15} />
-                          </button>
-                          <button onClick={() => { setSelected(r); setRejectReason(''); setShowReject(true); }}
-                            className="p-1.5 hover:bg-red-50 rounded text-red-500" title="Reject">
-                            <XCircle size={15} />
-                          </button>
+                  <>
+                    <tr key={r.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-gray-900">{r.rider_name}</p>
+                        <p className="text-xs text-gray-400">{r.rider_contact}</p>
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-gray-900">₱{fmt(r.amount)}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500">
+                        {r.period_start}<br/>{r.period_end !== r.period_start ? `→ ${r.period_end}` : ''}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-600">
+                        <p>{r.payment_method || '—'}</p>
+                        {r.reference_number && <p className="text-gray-400">#{r.reference_number}</p>}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold
+                          ${r.status === 'verified' ? 'bg-green-100 text-green-700'
+                          : r.status === 'rejected' ? 'bg-red-100 text-red-700'
+                          : 'bg-yellow-100 text-yellow-700'}`}>
+                          {r.status.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {r.receipt_image && (
+                          <a href={`${IMAGE_BASE}${r.receipt_image}`} target="_blank" rel="noopener noreferrer">
+                            <img src={`${IMAGE_BASE}${r.receipt_image}`} alt="Receipt"
+                              className="w-12 h-12 object-cover rounded-lg border hover:opacity-80 transition-opacity" />
+                          </a>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col items-center gap-1">
+                          {/* Seller breakdown toggle */}
+                          {(r.seller_distributions || []).length > 0 && (
+                            <button
+                              onClick={() => setExpandedRows(prev => ({ ...prev, [r.id]: !prev[r.id] }))}
+                              className="flex items-center gap-1 text-[11px] text-primary-800 hover:underline"
+                              title="Show seller breakdown"
+                            >
+                              <Store size={12} />
+                              {(r.seller_distributions || []).length} seller{r.seller_distributions.length !== 1 ? 's' : ''}
+                              {expandedRows[r.id] ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                            </button>
+                          )}
+                          {r.status === 'pending' && (
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => handleVerify(r.id)}
+                                className="p-1.5 hover:bg-green-50 rounded text-green-600" title="Verify">
+                                <CheckCircle size={15} />
+                              </button>
+                              <button onClick={() => { setSelected(r); setRejectReason(''); setShowReject(true); }}
+                                className="p-1.5 hover:bg-red-50 rounded text-red-500" title="Reject">
+                                <XCircle size={15} />
+                              </button>
+                            </div>
+                          )}
+                          {r.status === 'rejected' && r.rejection_reason && (
+                            <p className="text-xs text-red-400 max-w-[120px] truncate">{r.rejection_reason}</p>
+                          )}
                         </div>
-                      )}
-                      {r.status === 'rejected' && r.rejection_reason && (
-                        <p className="text-xs text-red-400 max-w-[120px] truncate">{r.rejection_reason}</p>
-                      )}
-                    </td>
-                  </tr>
+                      </td>
+                    </tr>
+
+                    {/* ── Seller distribution expanded row ── */}
+                    {expandedRows[r.id] && (r.seller_distributions || []).length > 0 && (
+                      <tr key={`dist-${r.id}`}>
+                        <td colSpan={7} className="px-6 pb-3 pt-0 bg-blue-50/40">
+                          <div className="border border-blue-100 rounded-xl overflow-hidden">
+                            <div className="bg-blue-50 px-4 py-2 grid grid-cols-4 gap-2 text-[10px] font-bold text-blue-700 uppercase tracking-wide border-b border-blue-100">
+                              <span>Seller / Store</span>
+                              <span className="text-right">Orders</span>
+                              <span className="text-right">Product Subtotal</span>
+                              <span className="text-right">Total (w/ fees)</span>
+                            </div>
+                            {r.seller_distributions.map((s, i) => {
+                              const totalSub = r.seller_distributions.reduce((a, x) => a + Number(x.seller_subtotal || 0), 0);
+                              const pct = totalSub > 0 ? (Number(s.seller_subtotal) / totalSub * 100).toFixed(1) : '0.0';
+                              return (
+                                <div key={s.seller_id || i}
+                                  className="px-4 py-2.5 grid grid-cols-4 gap-2 border-b border-blue-50 last:border-b-0 hover:bg-blue-50/60 items-center">
+                                  <div>
+                                    <p className="text-xs font-semibold text-gray-900">{s.store_name || `Seller #${s.seller_id}`}</p>
+                                    <div className="mt-1 h-1 bg-blue-100 rounded-full w-24">
+                                      <div className="h-1 bg-blue-500 rounded-full" style={{ width: `${pct}%` }} />
+                                    </div>
+                                    <p className="text-[10px] text-gray-400 mt-0.5">{pct}%</p>
+                                  </div>
+                                  <p className="text-right text-xs text-gray-700">{fmtN(s.order_count)}</p>
+                                  <p className="text-right text-xs font-semibold text-gray-900">₱{fmt(s.seller_subtotal)}</p>
+                                  <p className="text-right text-xs font-bold text-primary-800">₱{fmt(s.seller_total)}</p>
+                                </div>
+                              );
+                            })}
+                            {/* subtotal row */}
+                            <div className="px-4 py-2 bg-blue-50 grid grid-cols-4 gap-2 border-t border-blue-100">
+                              <p className="text-xs font-bold text-gray-700">Subtotal</p>
+                              <p className="text-right text-xs font-bold text-gray-700">
+                                {fmtN(r.seller_distributions.reduce((a, x) => a + Number(x.order_count || 0), 0))}
+                              </p>
+                              <p className="text-right text-xs font-bold text-gray-900">
+                                ₱{fmt(r.seller_distributions.reduce((a, x) => a + Number(x.seller_subtotal || 0), 0))}
+                              </p>
+                              <p className="text-right text-xs font-bold text-primary-800">
+                                ₱{fmt(r.seller_distributions.reduce((a, x) => a + Number(x.seller_total || 0), 0))}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
                 ))}
               </tbody>
             </table>

@@ -8,10 +8,12 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
+  Image,
+  StatusBar,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, Eye, EyeOff, Mail, Lock } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Eye, EyeOff, Mail, Lock, ArrowRight } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { COLORS } from '../../constants';
@@ -26,6 +28,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -44,99 +47,216 @@ export default function LoginScreen() {
     }
   };
 
+  const PRIMARY = COLORS.primary[800];
+  const PRIMARY_DARK = COLORS.primary[900];
+  const PRIMARY_LIGHT = COLORS.primary[50];
+
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={['top']}>
+    <View style={{ flex: 1, backgroundColor: PRIMARY }}>
+      <StatusBar barStyle="light-content" backgroundColor={PRIMARY} />
+
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
+        style={{ flex: 1 }}
       >
-        {/* Header */}
-        <View className="flex-row items-center px-4 py-3">
-          <TouchableOpacity onPress={() => router.back()} className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
-            <ArrowLeft size={20} color={COLORS.gray[700]} />
-          </TouchableOpacity>
-        </View>
+        <ScrollView
+          style={{ flex: 1 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ flexGrow: 1 }}
+        >
+          {/* ── Top branded section ───────────────────────────── */}
+          <View style={{
+            paddingTop: insets.top + 32,
+            paddingBottom: 36,
+            alignItems: 'center',
+            paddingHorizontal: 24,
+          }}>
+            {/* Logo */}
+            <Image
+              source={require('../../assets/images/logo.png')}
+              style={{ width: 100, height: 100, marginBottom: 20 }}
+              resizeMode="contain"
+            />
 
-        <ScrollView className="flex-1 px-6" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}>
-          <View className="mt-8 mb-10">
-            <Text className="text-2xl font-bold text-gray-900">Welcome back</Text>
-            <Text className="text-sm text-gray-500 mt-1">Sign in to your Bago Marketplace account</Text>
+            <Text style={{ fontSize: 26, fontWeight: '800', color: '#fff', letterSpacing: 0.3 }}>
+              Bago Shop Express
+            </Text>
+            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.65)', marginTop: 6, letterSpacing: 0.2 }}>
+              Your local marketplace in Bago City
+            </Text>
           </View>
 
-          {/* Email */}
-          <View className="mb-4">
-            <Text className="text-xs font-semibold text-gray-500 mb-2 uppercase">Email</Text>
-            <View className="relative">
-              <View className="absolute left-4 top-0 bottom-0 justify-center z-10">
-                <Mail size={16} color={COLORS.gray[400]} />
-              </View>
+          {/* ── Form card ─────────────────────────────────────── */}
+          <View style={{
+            flex: 1,
+            backgroundColor: '#fff',
+            borderTopLeftRadius: 32,
+            borderTopRightRadius: 32,
+            paddingHorizontal: 28,
+            paddingTop: 36,
+            paddingBottom: insets.bottom + 32,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: -4 },
+            shadowOpacity: 0.08,
+            shadowRadius: 16,
+            elevation: 8,
+          }}>
+
+            {/* Greeting */}
+            <Text style={{ fontSize: 22, fontWeight: '800', color: COLORS.gray[900], marginBottom: 6 }}>
+              Welcome back 👋
+            </Text>
+            <Text style={{ fontSize: 14, color: COLORS.gray[500], marginBottom: 32, lineHeight: 20 }}>
+              Sign in to continue shopping
+            </Text>
+
+            {/* Email field */}
+            <Text style={{ fontSize: 11, fontWeight: '700', color: COLORS.gray[500], marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+              Email Address
+            </Text>
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: focusedField === 'email' ? PRIMARY_LIGHT : COLORS.gray[50],
+              borderWidth: 1.5,
+              borderColor: focusedField === 'email' ? PRIMARY : COLORS.gray[200],
+              borderRadius: 14,
+              paddingHorizontal: 14,
+              marginBottom: 20,
+              height: 52,
+            }}>
+              <Mail size={18} color={focusedField === 'email' ? PRIMARY : COLORS.gray[400]} />
               <TextInput
                 value={email}
                 onChangeText={setEmail}
+                onFocus={() => setFocusedField('email')}
+                onBlur={() => setFocusedField(null)}
                 placeholder="your@email.com"
                 placeholderTextColor={COLORS.gray[400]}
                 keyboardType="email-address"
                 autoCapitalize="none"
-                className="bg-gray-50 border border-gray-200 rounded-xl pl-12 pr-4 py-3.5 text-sm text-gray-900"
+                autoCorrect={false}
+                style={{
+                  flex: 1,
+                  marginLeft: 10,
+                  fontSize: 15,
+                  color: COLORS.gray[900],
+                  height: '100%',
+                }}
               />
             </View>
-          </View>
 
-          {/* Password */}
-          <View className="mb-6">
-            <View className="flex-row justify-between items-center mb-2">
-              <Text className="text-xs font-semibold text-gray-500 uppercase">Password</Text>
-              <TouchableOpacity onPress={() => router.push('/auth/forgot-password')}>
-                <Text className="text-xs font-semibold text-primary-800">Forgot password?</Text>
+            {/* Password field */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: COLORS.gray[500], textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                Password
+              </Text>
+              <TouchableOpacity onPress={() => router.push('/auth/forgot-password')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: PRIMARY }}>Forgot password?</Text>
               </TouchableOpacity>
             </View>
-            <View className="relative">
-              <View className="absolute left-4 top-0 bottom-0 justify-center z-10">
-                <Lock size={16} color={COLORS.gray[400]} />
-              </View>
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: focusedField === 'password' ? PRIMARY_LIGHT : COLORS.gray[50],
+              borderWidth: 1.5,
+              borderColor: focusedField === 'password' ? PRIMARY : COLORS.gray[200],
+              borderRadius: 14,
+              paddingHorizontal: 14,
+              marginBottom: 32,
+              height: 52,
+            }}>
+              <Lock size={18} color={focusedField === 'password' ? PRIMARY : COLORS.gray[400]} />
               <TextInput
                 value={password}
                 onChangeText={setPassword}
+                onFocus={() => setFocusedField('password')}
+                onBlur={() => setFocusedField(null)}
                 placeholder="••••••••"
                 placeholderTextColor={COLORS.gray[400]}
                 secureTextEntry={!showPassword}
-                className="bg-gray-50 border border-gray-200 rounded-xl pl-12 pr-12 py-3.5 text-sm text-gray-900"
+                style={{
+                  flex: 1,
+                  marginLeft: 10,
+                  fontSize: 15,
+                  color: COLORS.gray[900],
+                  height: '100%',
+                }}
               />
               <TouchableOpacity
                 onPress={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-0 bottom-0 justify-center"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                {showPassword ? (
-                  <EyeOff size={16} color={COLORS.gray[400]} />
-                ) : (
-                  <Eye size={16} color={COLORS.gray[400]} />
-                )}
+                {showPassword
+                  ? <EyeOff size={18} color={COLORS.gray[400]} />
+                  : <Eye size={18} color={COLORS.gray[400]} />
+                }
               </TouchableOpacity>
             </View>
-          </View>
 
-          {/* Login button */}
-          <TouchableOpacity
-            onPress={handleLogin}
-            disabled={loading}
-            className={`bg-primary-800 py-4 rounded-xl items-center ${loading ? 'opacity-70' : ''}`}
-          >
-            {loading ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text className="text-white font-bold text-sm">Login</Text>
-            )}
-          </TouchableOpacity>
+            {/* Login button */}
+            <TouchableOpacity
+              onPress={handleLogin}
+              disabled={loading}
+              activeOpacity={0.85}
+              style={{
+                backgroundColor: loading ? COLORS.primary[600] : PRIMARY,
+                borderRadius: 16,
+                height: 56,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                shadowColor: PRIMARY_DARK,
+                shadowOffset: { width: 0, height: 6 },
+                shadowOpacity: 0.35,
+                shadowRadius: 14,
+                elevation: 8,
+                marginBottom: 28,
+              }}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16, letterSpacing: 0.3 }}>
+                    Sign In
+                  </Text>
+                  <ArrowRight size={18} color="#fff" />
+                </>
+              )}
+            </TouchableOpacity>
 
-          {/* Register link */}
-          <View className="flex-row items-center justify-center mt-6">
-            <Text className="text-sm text-gray-500">Don't have an account? </Text>
-            <TouchableOpacity onPress={() => router.replace('/auth/register')}>
-              <Text className="text-sm font-bold text-primary-800">Register</Text>
+            {/* Divider */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 28 }}>
+              <View style={{ flex: 1, height: 1, backgroundColor: COLORS.gray[200] }} />
+              <Text style={{ marginHorizontal: 12, fontSize: 12, color: COLORS.gray[400], fontWeight: '500' }}>
+                New to Bago Shop Express?
+              </Text>
+              <View style={{ flex: 1, height: 1, backgroundColor: COLORS.gray[200] }} />
+            </View>
+
+            {/* Register button */}
+            <TouchableOpacity
+              onPress={() => router.replace('/auth/register')}
+              activeOpacity={0.8}
+              style={{
+                borderWidth: 2,
+                borderColor: PRIMARY,
+                borderRadius: 16,
+                height: 52,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text style={{ color: PRIMARY, fontWeight: '700', fontSize: 15 }}>
+                Create an Account
+              </Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
